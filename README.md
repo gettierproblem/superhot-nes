@@ -6,6 +6,8 @@ A demake of [SUPERHOT](https://superhotgame.com/) for the Nintendo Entertainment
 
 **[Play in your browser](https://gettierproblem.github.io/superhot-nes/)** | **[Download ROM](https://github.com/gettierproblem/superhot-nes/releases/latest)**
 
+![Gameplay](docs/screenshot_gameplay.png)
+
 ## The Game
 
 You are a white silhouette in a black-and-white world. Red crystalline enemies want you dead. One hit kills everything — you included.
