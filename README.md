@@ -2,7 +2,7 @@
 
 A demake of [SUPERHOT](https://superhotgame.com/) for the Nintendo Entertainment System. Time moves when you move.
 
-![Title Screen](docs/screenshot_title.png)
+![Title Screen](docs/screenshot_title.gif)
 
 **[Play in your browser](https://gettierproblem.github.io/superhot-nes/)** | **[Download ROM](https://github.com/gettierproblem/superhot-nes/releases/latest)**
 
