@@ -2,6 +2,10 @@
 
 A demake of [SUPERHOT](https://superhotgame.com/) for the Nintendo Entertainment System. Time moves when you move.
 
+![Title Screen](docs/screenshot_title.png)
+
+**[Play in your browser](https://gettierproblem.github.io/superhot-nes/)** | **[Download ROM](https://github.com/gettierproblem/superhot-nes/releases/latest)**
+
 ## The Game
 
 You are a white silhouette in a black-and-white world. Red crystalline enemies want you dead. One hit kills everything — you included.
@@ -15,17 +19,18 @@ Three levels. No checkpoints. **SUPER. HOT.**
 | Button | Action |
 |--------|--------|
 | D-pad Left/Right | Walk (advances time) |
-| D-pad Down | Crouch (advances time, shrinks hitbox) |
+| D-pad Down | Crouch / Pick up weapon |
 | A | Jump |
 | B | Punch / Shoot / Swing katana |
 | B + direction | Throw held weapon |
+| B (empty gun) | Auto-throw empty weapon |
 | Start | Start game |
 
-Walk over dropped weapons to pick them up. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (long melee), bottles (throwable).
+Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (long melee), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above!
 
 ### Levels
 
-1. **CORRIDOR** — 3 enemies. Learn the time mechanic the hard way.
+1. **CORRIDOR** — 6 enemies across 2 scrolling screens. Learn the time mechanic the hard way.
 2. **ELEVATOR** — 5 enemies on stacked platforms. Vertical pressure.
 3. **BAR** — 7 enemies. Tight spaces, every weapon type, and a locked back room with a katana-wielding boss.
 
