@@ -147,10 +147,14 @@ loadScript(JSNES_SCRIPT, function() {
         if (m) { nes.buttonUp(m[0], m[1]); e.preventDefault(); }
     });
 
-    /* Animation loop */
-    function frame() {
-        nes.frame();
+    /* Animation loop — locked to 60fps */
+    var frameTime = 1000 / 60;
+    var lastFrame = 0;
+    function frame(ts) {
         requestAnimationFrame(frame);
+        if (ts - lastFrame < frameTime) return;
+        lastFrame = ts - ((ts - lastFrame) % frameTime);
+        nes.frame();
     }
 
     /* Load the ROM */
