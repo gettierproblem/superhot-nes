@@ -1,0 +1,9 @@
+*.o
+*.obj
+*.exe
+obj/
+game.nes
+_deps/
+tools/mesen/
+.DS_Store
+Thumbs.db
