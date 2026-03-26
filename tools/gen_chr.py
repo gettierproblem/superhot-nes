@@ -285,6 +285,51 @@ char_punch_br = [
     [0,0,0,0,0,0,0,0],
 ]
 
+# Katana slash (2x2) - arm raised overhead in sweeping motion
+char_slash_tl = [
+    [0,0,0,1,1,0,0,0],
+    [0,0,1,3,3,1,0,0],
+    [0,0,1,3,3,3,0,0],
+    [0,0,0,1,3,1,0,0],
+    [0,0,3,3,1,0,0,0],
+    [0,3,3,3,3,0,0,0],
+    [0,0,1,3,3,1,0,0],
+    [0,0,1,3,3,1,0,0],
+]
+
+char_slash_tr = [
+    [0,0,0,0,3,1,0,0],
+    [0,0,0,3,1,0,0,0],
+    [0,0,3,1,0,0,0,0],
+    [0,3,1,0,0,0,0,0],
+    [3,1,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+]
+
+char_slash_bl = [
+    [0,0,1,3,3,1,0,0],
+    [0,0,1,3,1,3,0,0],
+    [0,1,3,0,0,3,1,0],
+    [0,1,1,0,0,1,1,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+]
+
+char_slash_br = [
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+]
+
 # Jump kick (2x2) - leg extended forward, body angled
 char_kick_tl = [
     [0,0,0,1,1,0,0,0],
@@ -388,6 +433,18 @@ katana_tile = [
     [0,1,3,1,0,0,0,0],
     [0,1,1,0,0,0,0,0],
     [1,0,0,0,0,0,0,0],
+]
+
+# Katana horizontal (thrust/poke position, like Zelda)
+katana_horiz = [
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [1,1,3,3,3,3,3,1],
+    [0,1,3,3,3,3,1,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
 ]
 
 # Bottle
@@ -1386,6 +1443,7 @@ def main():
         'D': [[1,1,0],[1,0,1],[1,0,1],[1,0,1],[1,1,0]],
         'E': [[1,1,1],[1,0,0],[1,1,0],[1,0,0],[1,1,1]],
         'I': [[1,1,1],[0,1,0],[0,1,0],[0,1,0],[1,1,1]],
+        'J': [[0,1,1],[0,0,1],[0,0,1],[1,0,1],[0,1,0]],
         'L': [[1,0,0],[1,0,0],[1,0,0],[1,0,0],[1,1,1]],
         'O': [[1,1,1],[1,0,1],[1,0,1],[1,0,1],[1,1,1]],
         'R': [[1,1,0],[1,0,1],[1,1,0],[1,0,1],[1,0,1]],
@@ -1440,6 +1498,23 @@ def main():
     while len(bar_tiles) < 2:
         spr_tiles.append(empty_tile())
         bar_tiles.append(None)
+
+    # $2D-$2E: DOJO (2 tiles)
+    dojo_tiles = make_label_tiles("DOJO")
+    for t in dojo_tiles:
+        spr_tiles.append(t)
+    while len(dojo_tiles) < 2:
+        spr_tiles.append(empty_tile())
+        dojo_tiles.append(None)
+
+    # $2F-$32: character katana slash
+    spr_tiles.append(make_tile(char_slash_tl))
+    spr_tiles.append(make_tile(char_slash_tr))
+    spr_tiles.append(make_tile(char_slash_bl))
+    spr_tiles.append(make_tile(char_slash_br))
+
+    # $33: katana horizontal (thrust)
+    spr_tiles.append(make_tile(katana_horiz))
 
     # Fill remaining sprite tiles with empty
     while len(spr_tiles) < 256:

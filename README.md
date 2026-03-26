@@ -14,7 +14,7 @@ You are a white silhouette in a black-and-white world. Red crystalline enemies w
 
 **The twist:** time only advances when you act. Stand still and the world freezes. Bullets hang in the air. Plan your move, then execute.
 
-Three levels. No checkpoints. **SUPER. HOT.**
+Four levels. No checkpoints. **SUPER. HOT.**
 
 ### Controls
 
@@ -25,17 +25,19 @@ Three levels. No checkpoints. **SUPER. HOT.**
 | D-pad Down + A | Drop through platform |
 | A | Jump (passes through brown platforms) |
 | B | Punch / Shoot / Swing katana |
-| B + direction | Throw held weapon |
+| B (katana) | Always slash (cannot throw) |
+| B + direction | Throw held weapon (guns/bottles) |
 | B (empty gun) | Auto-throw empty weapon |
 | Start | Start game |
 
-Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (long melee), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+jump.
+Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (always slash, cannot throw), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+A.
 
 ### Levels
 
-1. **CORRIDOR** — 6 enemies across 2 scrolling screens. Learn the time mechanic the hard way.
-2. **ELEVATOR** — 6 enemies across 5 stories with smooth vertical scrolling. Ride the elevator or take the stairs. Brown floors can be jumped through.
-3. **BAR** — 7 enemies. Tight spaces, every weapon type, and a locked back room with a katana-wielding boss.
+1. **DOJO** — 4 enemies in a house structure. 2 gunners and 2 katana rushers who jump to platforms.
+2. **CORRIDOR** — 6 enemies across 2 scrolling screens. Learn the time mechanic the hard way.
+3. **ELEVATOR** — 6 enemies across 5 stories with smooth vertical scrolling. Ride the elevator or take the stairs. Brown floors can be jumped through.
+4. **BAR** — 7 enemies. Tight spaces, every weapon type, and a locked back room with a katana-wielding boss.
 
 ## Building
 
@@ -55,7 +57,7 @@ bash build.sh       # Git Bash / Linux / macOS
 build.bat           # Windows CMD
 ```
 
-Outputs `game.nes` — a standard 40KB NROM ROM (Mapper 0, 32KB PRG + 8KB CHR).
+Outputs `game.nes` — a 40KB MMC1 ROM (Mapper 1, 32KB PRG + 8KB CHR).
 
 ### Run
 

@@ -69,6 +69,12 @@ void __fastcall__ set_mirroring(unsigned char mode);
 #define SPR_CORRIDOR  0x23  /* 4 tiles */
 #define SPR_ELEVATOR  0x27  /* 4 tiles */
 #define SPR_BAR       0x2B  /* 2 tiles */
+#define SPR_DOJO      0x2D  /* 2 tiles */
+#define SPR_SLASH_TL  0x2F
+#define SPR_SLASH_TR  0x30
+#define SPR_SLASH_BL  0x31
+#define SPR_SLASH_BR  0x32
+#define SPR_KATANA_H  0x33  /* katana horizontal (thrust) */
 
 /* --- BG tile indices (pattern table 1) --- */
 #define BG_EMPTY      0x00
@@ -630,6 +636,39 @@ static void init_level(void) {
     }
 
     if (current_level == 0) {
+        /* LEVEL 0: DOJO — 2 screens wide
+         * House structure in center (cols 16-48)
+         * Player starts on raised platform in center, can drop through
+         * 4 enemies: 2 gunners + 2 katana rushers at front and rear
+         */
+        level_width_px = 512;
+        level_height_px = 240;
+        scroll_dir = 0;
+        set_mirroring(MIRROR_VERTICAL);
+
+        /* Player starts in center of house on the raised platform */
+        px = 224;
+        py = 20 * 8 - 16;
+        p_facing = 0;
+        p_weapon = WPN_KATANA;
+
+        /* House floor (pass-through, player starts here) — row 20, aligned to 4n
+         * Start at col 28 to avoid wall attr overlap (wall at col 24 is attr col 6) */
+        add_platform_pass(28, 20, 8);
+
+        /* E1: Gunner at front of house (right side, outside) */
+        add_enemy(0, ETYPE_GUNNER, 380, FLOOR_Y - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+
+        /* E2: Katana rusher at front (right side, ground) */
+        add_enemy(1, ETYPE_RUSHER, 340, FLOOR_Y - 16, OAM_FLIP_H, WPN_KATANA, 0);
+
+        /* E3: Gunner at rear of house (left side, outside) */
+        add_enemy(2, ETYPE_GUNNER, 100, FLOOR_Y - 16, 0, WPN_PISTOL, 3);
+
+        /* E4: Katana rusher at rear (left side, ground) */
+        add_enemy(3, ETYPE_RUSHER, 60, FLOOR_Y - 16, 0, WPN_KATANA, 0);
+
+    } else if (current_level == 1) {
         /* LEVEL 1: CORRIDOR — 2 screens wide (64 cols = 512 px) */
         level_width_px = 512;
         level_height_px = 240;
@@ -670,7 +709,7 @@ static void init_level(void) {
         /* E6: Rusher on mid platform */
         add_enemy(5, ETYPE_RUSHER, 352, 16*8 - 16, OAM_FLIP_H, WPN_NONE, 0);
 
-    } else if (current_level == 1) {
+    } else if (current_level == 2) {
         /* LEVEL 2: ELEVATOR — 5-story vertical scrolling
          * 256px wide × 480px tall (32 cols × 60 rows)
          * Left cols 0-4: elevator shaft (walls + open shaft)
@@ -862,8 +901,30 @@ static void draw_bg_column(unsigned char world_col) {
         }
     }
 
-    /* Elevator shaft wall (col 3) for level 1 */
-    if (current_level == 1 && world_col == 3) {
+    /* Dojo house structure (level 0): walls at cols 24,40; roof at row 12 */
+    if (current_level == 0) {
+        /* Side walls — from roof down to ground */
+        if (world_col == 24 || world_col == 40) {
+            r = (unsigned char)(ground_y_col[world_col] >> 3);
+            for (ty = 12; ty < r; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_WALL);
+            }
+            /* Door openings (bottom 4 rows before ground) */
+            for (ty = r - 4; ty < r; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_EMPTY);
+            }
+        }
+        /* Roof — row 12 across the house */
+        if (world_col >= 24 && world_col <= 40) {
+            vram_adr(tile_addr(world_col, 12));
+            vram_put(BG_FLOOR_TOP);
+        }
+    }
+
+    /* Elevator shaft wall (col 3) for level 2 */
+    if (current_level == 2 && world_col == 3) {
         for (r = 0; r < level_rows; ++r) {
             vram_adr(tile_addr(world_col, r));
             vram_put(BG_WALL);
@@ -871,7 +932,7 @@ static void draw_bg_column(unsigned char world_col) {
     }
 
     /* Level-specific decorations */
-    if (current_level == 2) {
+    if (current_level == 3) {
         if (world_col == 5) {
             vram_adr(tile_addr(world_col, 16));
             vram_put(door_open_flag ? BG_DOOR_OPEN : BG_DOOR_SHUT);
@@ -1039,16 +1100,31 @@ static void update_player(void) {
     if (pad_new & PAD_B) {
         tick_advance += 2; /* attacking advances time a burst */
 
-        if (p_weapon != WPN_NONE && (pad & (PAD_LEFT|PAD_RIGHT|PAD_UP))) {
-            /* THROW weapon (directional) */
+        if (p_weapon == WPN_KATANA && p_on_ground) {
+            /* SWING katana — only on ground, in air use kick instead */
+            p_punch_timer = 8;
+            for (i = 0; i < MAX_ENEMIES; ++i) {
+                if (en_type[i] == ETYPE_NONE || en_state[i] == 3) continue;
+                if (p_facing == OAM_FLIP_H) {
+                    if (en_x[i] < px && px - en_x[i] < KATANA_RANGE &&
+                        en_y[i] + 8 > py && en_y[i] < py + 16)
+                        kill_enemy(i);
+                } else {
+                    if (en_x[i] > px && en_x[i] - px < KATANA_RANGE &&
+                        en_y[i] + 8 > py && en_y[i] < py + 16)
+                        kill_enemy(i);
+                }
+            }
+        } else if (p_weapon != WPN_NONE && p_weapon != WPN_KATANA && (pad & (PAD_LEFT|PAD_RIGHT|PAD_UP))) {
+            /* THROW weapon (directional) — not katana */
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = p_weapon;
             spawn_ammo = p_ammo;
             spawn_bullet(px + 4, py + 4, throw_vx, 0, 0);
             p_weapon = WPN_NONE;
             p_ammo = 0;
-        } else if (p_weapon != WPN_NONE && p_ammo == 0) {
-            /* AUTO-THROW empty weapon in facing direction */
+        } else if (p_weapon != WPN_NONE && p_weapon != WPN_KATANA && p_ammo == 0) {
+            /* AUTO-THROW empty weapon — not katana */
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = p_weapon;
             spawn_ammo = 0;
@@ -1071,21 +1147,6 @@ static void update_player(void) {
             spawn_bullet(wx, py + 4, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  0, 0);
             spawn_bullet(wx, py + 6, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  1, 0);
             --p_ammo;
-        } else if (p_weapon == WPN_KATANA) {
-            /* SWING katana - check for enemies in range */
-            p_punch_timer = 8;
-            for (i = 0; i < MAX_ENEMIES; ++i) {
-                if (en_type[i] == ETYPE_NONE || en_state[i] == 3) continue;
-                if (p_facing == OAM_FLIP_H) {
-                    if (en_x[i] < px && px - en_x[i] < KATANA_RANGE &&
-                        en_y[i] + 8 > py && en_y[i] < py + 16)
-                        kill_enemy(i);
-                } else {
-                    if (en_x[i] > px && en_x[i] - px < KATANA_RANGE &&
-                        en_y[i] + 8 > py && en_y[i] < py + 16)
-                        kill_enemy(i);
-                }
-            }
         } else if (!p_on_ground) {
             /* JUMP KICK - airborne melee, extends forward and below */
             p_punch_timer = 8;
@@ -1230,6 +1291,8 @@ static void update_player(void) {
     /* --- Animation state --- */
     if (p_punch_timer > 0 && !p_on_ground) {
         p_anim = 5; /* kick */
+    } else if (p_punch_timer > 0 && p_weapon == WPN_KATANA) {
+        p_anim = 0; /* stand pose during katana thrust (katana sprite does the work) */
     } else if (p_punch_timer > 0) {
         p_anim = 4; /* punch */
     } else if (p_crouch) {
@@ -1300,16 +1363,16 @@ static void update_enemies(void) {
     if (tick_advance == 0) return; /* time is frozen */
 
     /* Trigger-based activation: reset high timers so enemies start attacking */
-    if (current_level == 0 && en_type[0] == ETYPE_NONE && en_timer[2] >= 200) {
+    if (current_level == 1 && en_type[0] == ETYPE_NONE && en_timer[2] >= 200) {
         /* E3 becomes aggressive when E1 dies */
         en_timer[2] = 0;
         en_facing[2] = OAM_FLIP_H;
     }
-    if (current_level == 2 && en_type[4] == ETYPE_NONE && en_timer[5] >= 200) {
+    if (current_level == 3 && en_type[4] == ETYPE_NONE && en_timer[5] >= 200) {
         /* E6 becomes aggressive when E5 dies */
         en_timer[5] = 0;
     }
-    if (current_level == 2 && door_open_flag && en_timer[6] >= 200) {
+    if (current_level == 3 && door_open_flag && en_timer[6] >= 200) {
         /* E7 becomes aggressive when door opens */
         en_timer[6] = 0;
     }
@@ -1358,17 +1421,54 @@ static void update_enemies(void) {
                         en_x[i] += ENEMY_SPEED * tick_advance;
                     }
                 }
-                /* Gravity for rushers */
+                /* Katana rushers jump toward platforms above them */
+                if (en_weapon[i] == WPN_KATANA && en_on_ground[i] &&
+                    py + 16 < en_y[i] && dist < 200 && tick_advance > 0) {
+                    /* Check if there's a platform above within jump range */
+                    tmp = 0; /* found flag */
+                    for (ci = 0; ci < num_plats; ++ci) {
+                        /* Platform must be above enemy and within jump height (~50px) */
+                        if (plat_y[ci] * 8 < en_y[i] &&
+                            en_y[i] - plat_y[ci] * 8 < 50) {
+                            /* Enemy x must be within or near the platform */
+                            if (en_x[i] + 16 > (unsigned int)plat_x[ci] * 8 &&
+                                en_x[i] < (unsigned int)(plat_x[ci] + plat_w[ci]) * 8) {
+                                tmp = 1;
+                                break;
+                            }
+                        }
+                    }
+                    if (tmp) {
+                        en_vy[i] = -10;
+                        en_on_ground[i] = 0;
+                    }
+                }
+                /* Gravity for rushers — match player jump height */
                 if (!en_on_ground[i]) {
-                    en_y[i] += 2;
+                    en_y[i] += en_vy[i];
+                    /* Slow gravity to match player's fractional system */
+                    if (en_vy[i] < MAX_FALL_VEL) {
+                        if (en_vy[i] < 0) {
+                            en_vy[i] += 1; /* decelerate upward normally */
+                        } else {
+                            en_vy[i] += 1; /* accelerate downward */
+                        }
+                    }
+                } else {
+                    en_vy[i] = 0;
                 }
                 /* Ground check */
                 if (check_solid(en_x[i] + 6, en_y[i] + 16)) {
                     wy = (en_y[i] + 16) >> 3;
                     en_y[i] = (wy << 3) - 16;
                     en_on_ground[i] = 1;
+                    en_vy[i] = 0;
                 } else {
                     en_on_ground[i] = 0;
+                }
+                /* Katana melee: kill player if in range (matched to thrust graphic) */
+                if (en_weapon[i] == WPN_KATANA && dist < 18 && ty < 16 && p_alive) {
+                    kill_player();
                 }
                 break;
 
@@ -1452,7 +1552,7 @@ static void update_enemies(void) {
     }
 
     /* Level 3 door logic: opens when E4 (idx 3) and E5 (idx 4) are dead */
-    if (current_level == 2 && !door_open_flag) {
+    if (current_level == 3 && !door_open_flag) {
         if (en_type[3] == ETYPE_NONE && en_type[4] == ETYPE_NONE) {
             door_open_flag = 1;
         }
@@ -1593,6 +1693,7 @@ static void draw_sprites(void) {
                     case 2:  tmp = SPR_JUMP_TL;  break;
                     case 4:  tmp = SPR_PUNCH_TL; break;
                     case 5:  tmp = SPR_KICK_TL;  break;
+                    case 6:  tmp = SPR_SLASH_TL; break;
                     default: tmp = SPR_STAND_TL; break;
                 }
                 if (p_facing == OAM_FLIP_H) {
@@ -1609,16 +1710,35 @@ static void draw_sprites(void) {
             }
 
             /* Player weapon in hand */
-            if (p_weapon != WPN_NONE && p_anim != 4) {
+            if (p_weapon == WPN_KATANA && p_anim != 5) {
+                if (p_punch_timer > 0 && p_on_ground) {
+                    /* Thrust — horizontal katana extended forward */
+                    spr_id = oam_spr(
+                        (p_facing == OAM_FLIP_H) ? scx - 4 : scx + 12,
+                        scy + 4,
+                        SPR_KATANA_H,
+                        (p_facing == OAM_FLIP_H) ? PAL_PLAYER | OAM_FLIP_H : PAL_PLAYER,
+                        spr_id
+                    );
+                } else {
+                    /* At rest — diagonal katana */
+                    spr_id = oam_spr(
+                        (p_facing == OAM_FLIP_H) ? scx - 2 : scx + 8,
+                        scy + 2,
+                        SPR_KATANA,
+                        (p_facing == OAM_FLIP_H) ? PAL_PLAYER | OAM_FLIP_H : PAL_PLAYER,
+                        spr_id
+                    );
+                }
+            } else if (p_weapon != WPN_NONE && p_anim != 4) {
                 tmp = SPR_PISTOL;
                 switch (p_weapon) {
                     case WPN_PISTOL:  tmp = SPR_PISTOL;    break;
                     case WPN_SHOTGUN: tmp = SPR_SHOTGUN_L;  break;
-                    case WPN_KATANA:  tmp = SPR_KATANA;     break;
                     case WPN_BOTTLE:  tmp = SPR_BOTTLE;     break;
                 }
                 spr_id = oam_spr(
-                    (p_facing == OAM_FLIP_H) ? scx - 6 : scx + 12,
+                    (p_facing == OAM_FLIP_H) ? scx - 1 : scx + 8,
                     scy + 4,
                     tmp,
                     (p_facing == OAM_FLIP_H) ? PAL_PLAYER | OAM_FLIP_H : PAL_PLAYER,
@@ -1654,19 +1774,28 @@ static void draw_sprites(void) {
         /* Enemy weapon */
         if (en_weapon[i] == WPN_PISTOL || en_weapon[i] == WPN_BOTTLE) {
             spr_id = oam_spr(
-                (en_facing[i] == OAM_FLIP_H) ? scx - 6 : scx + 12,
+                (en_facing[i] == OAM_FLIP_H) ? scx + 1 : scx + 8,
                 scy + 4, SPR_PISTOL,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         } else if (en_weapon[i] == WPN_SHOTGUN) {
             spr_id = oam_spr(
-                (en_facing[i] == OAM_FLIP_H) ? scx - 8 : scx + 12,
+                (en_facing[i] == OAM_FLIP_H) ? scx + 1 : scx + 6,
                 scy + 4, SPR_SHOTGUN_L,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         } else if (en_weapon[i] == WPN_KATANA) {
-            spr_id = oam_spr(
-                (en_facing[i] == OAM_FLIP_H) ? scx - 6 : scx + 12,
-                scy + 2, SPR_KATANA,
-                (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
+            /* Show horizontal katana when close to player (attacking) */
+            wx = (en_x[i] > px) ? en_x[i] - px : px - en_x[i];
+            if (wx < KATANA_RANGE + 8) {
+                spr_id = oam_spr(
+                    (en_facing[i] == OAM_FLIP_H) ? scx - 2 : scx + 10,
+                    scy + 4, SPR_KATANA_H,
+                    (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
+            } else {
+                spr_id = oam_spr(
+                    (en_facing[i] == OAM_FLIP_H) ? scx : scx + 10,
+                    scy + 2, SPR_KATANA,
+                    (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
+            }
         }
     }
 
@@ -1752,11 +1881,14 @@ static void draw_sprites(void) {
 
         /* Level label — on row 2 to avoid 8-sprite scanline limit */
         if (current_level == 0) {
+            spr_id = oam_spr(232, 16, SPR_DOJO,     PAL_PLAYER, spr_id);
+            spr_id = oam_spr(240, 16, SPR_DOJO + 1, PAL_PLAYER, spr_id);
+        } else if (current_level == 1) {
             spr_id = oam_spr(216, 16, SPR_CORRIDOR,     PAL_PLAYER, spr_id);
             spr_id = oam_spr(224, 16, SPR_CORRIDOR + 1, PAL_PLAYER, spr_id);
             spr_id = oam_spr(232, 16, SPR_CORRIDOR + 2, PAL_PLAYER, spr_id);
             spr_id = oam_spr(240, 16, SPR_CORRIDOR + 3, PAL_PLAYER, spr_id);
-        } else if (current_level == 1) {
+        } else if (current_level == 2) {
             spr_id = oam_spr(216, 16, SPR_ELEVATOR,     PAL_PLAYER, spr_id);
             spr_id = oam_spr(224, 16, SPR_ELEVATOR + 1, PAL_PLAYER, spr_id);
             spr_id = oam_spr(232, 16, SPR_ELEVATOR + 2, PAL_PLAYER, spr_id);
@@ -1914,7 +2046,7 @@ static void do_superhot_screen(void) {
     ppu_on_all();
 
     last_phase = 0;
-    max_frames = (current_level >= 2) ? 180 : 90;
+    max_frames = (current_level >= 3) ? 180 : 90;
 
     for (frames = 0; frames < max_frames; ++frames) {
         ppu_wait_nmi();
@@ -1974,7 +2106,7 @@ next_level:
                     set_vram_update(0);
                     do_superhot_screen();
 
-                    if (current_level < 2) {
+                    if (current_level < 3) {
                         ++current_level;
                         goto next_level;
                     } else {
