@@ -6,7 +6,7 @@ A demake of [SUPERHOT](https://superhotgame.com/) for the Nintendo Entertainment
 
 **[Play in your browser](https://gettierproblem.github.io/superhot-nes/)** | **[Download ROM](https://github.com/gettierproblem/superhot-nes/releases)**
 
-![Gameplay](docs/screenshot_gameplay.png)
+![Gameplay](docs/screenshot_gameplay.png?v=2)
 
 ## The Game
 
