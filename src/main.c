@@ -14,6 +14,11 @@
 
 #include "neslib.h"
 
+/* MMC1 mirroring control (defined in crt0.s) */
+void __fastcall__ set_mirroring(unsigned char mode);
+#define MIRROR_VERTICAL   2
+#define MIRROR_HORIZONTAL 3
+
 /* ======================================================================
    CONSTANTS
    ====================================================================== */
@@ -79,6 +84,7 @@
 #define BG_COLUMN     0x0A
 #define BG_ELEVATOR   0x0B
 #define BG_LGREY      0x0C
+#define BG_FLOOR_PASS 0x0D
 
 /* BG text: A=0x21 ... Z=0x3A, 0=0x3B ... 9=0x44, .=0x45, !=0x46, space=0x47 */
 #define BG_CHAR_A     0x21
@@ -152,7 +158,7 @@
 
 /* --- Level --- */
 #define LEVEL_COLS  64
-#define LEVEL_ROWS  30
+#define LEVEL_ROWS  60    /* max rows for tall vertical levels (480px / 8) */
 #define LEVEL_W_PX  (LEVEL_COLS * 8)
 
 /* ======================================================================
@@ -169,8 +175,12 @@ static unsigned char shimmer_timer;    /* for time-freeze palette effect */
 static unsigned char enemies_alive;
 static unsigned char door_open_flag;   /* for level 3 */
 static unsigned int  camera_x;        /* scroll position in pixels */
+static unsigned int  camera_y;        /* vertical scroll position */
 static unsigned int  level_width_px;  /* width of current level in pixels */
-static unsigned char last_cam_col;    /* last nametable column drawn (for streaming) */
+static unsigned int  level_height_px; /* height of current level in pixels */
+static unsigned char scroll_dir;      /* 0=horizontal, 1=vertical */
+static unsigned int  elev_y;          /* elevator platform Y position */
+static unsigned char elev_active;     /* 1 if level has elevator */
 
 /* input */
 static unsigned char pad;
@@ -179,7 +189,7 @@ static unsigned char pad_prev;
 
 /* player */
 static unsigned int  px;               /* position (world x, 16-bit for scrolling) */
-static unsigned char py;
+static unsigned int  py;               /* position (world y, 16-bit for vertical scrolling) */
 static signed char   pvx;             /* velocity x */
 static signed char   pvy;             /* velocity y (fixed 4.4) */
 static unsigned char pvy_frac;
@@ -190,13 +200,14 @@ static unsigned char p_ammo;
 static unsigned char p_anim;           /* 0=stand,1=walk,2=jump,3=crouch,4=punch */
 static unsigned char p_anim_timer;
 static unsigned char p_punch_timer;    /* frames remaining in punch animation */
+static unsigned char p_drop_timer;    /* frames to ignore platform collision (drop-through) */
 static unsigned char p_alive;
 static unsigned char p_crouch;
 
 /* enemies */
 static unsigned char en_type[MAX_ENEMIES];
 static unsigned int  en_x[MAX_ENEMIES];
-static unsigned char en_y[MAX_ENEMIES];
+static unsigned int  en_y[MAX_ENEMIES];
 static signed char   en_vx[MAX_ENEMIES];
 static signed char   en_vy[MAX_ENEMIES];
 static unsigned char en_facing[MAX_ENEMIES];    /* 0=right, OAM_FLIP_H=left */
@@ -210,7 +221,7 @@ static unsigned char en_on_ground[MAX_ENEMIES];
 /* bullets */
 static unsigned char bul_active[MAX_BULLETS];
 static unsigned int  bul_x[MAX_BULLETS];
-static unsigned char bul_y[MAX_BULLETS];
+static unsigned int  bul_y[MAX_BULLETS];
 static signed char   bul_vx[MAX_BULLETS];
 static signed char   bul_vy[MAX_BULLETS];
 static unsigned char bul_owner[MAX_BULLETS];   /* 0=player, 1=enemy */
@@ -220,13 +231,13 @@ static unsigned char bul_ammo[MAX_BULLETS];   /* ammo remaining for thrown weapo
 /* weapon pickups on the ground */
 static unsigned char pick_type[MAX_PICKUPS];
 static unsigned int  pick_x[MAX_PICKUPS];
-static unsigned char pick_y[MAX_PICKUPS];
+static unsigned int  pick_y[MAX_PICKUPS];
 static unsigned char pick_ammo[MAX_PICKUPS];
 
 /* shatter particles */
 static unsigned char part_active[MAX_PARTICLES];
 static unsigned int  part_x[MAX_PARTICLES];
-static unsigned char part_y[MAX_PARTICLES];
+static unsigned int  part_y[MAX_PARTICLES];
 static signed char   part_vx[MAX_PARTICLES];
 static signed char   part_vy[MAX_PARTICLES];
 static unsigned char part_timer[MAX_PARTICLES];
@@ -239,7 +250,10 @@ static unsigned char spr_id;
 static unsigned char i, j, tmp;
 static unsigned char tx, ty;
 static unsigned int  wx;              /* temp world-x for calculations */
+static unsigned int  wy;              /* temp world-y for calculations */
 static int           sx;              /* temp screen-x (signed, can be negative/offscreen) */
+static int           sy;              /* temp screen-y (signed, can be negative/offscreen) */
+static unsigned char solid_skip_pass; /* 1=skip pass-through platforms in check_solid */
 static unsigned char ci;  /* check_solid loop var */
 static unsigned char si;  /* spawn_bullet loop var */
 static unsigned char spawn_wpn;  /* weapon type for next spawn_bullet call */
@@ -259,7 +273,7 @@ const unsigned char pal_bg_game[16] = {
     0x0F,
     0x30, 0x10, 0x00,          /* pal 2: white, dk grey, grey (HUD) */
     0x0F,
-    0x20, 0x10, 0x00            /* pal 3: greys */
+    0x17, 0x07, 0x27            /* pal 3: brown (pass-through platforms) */
 };
 
 const unsigned char pal_spr_game[16] = {
@@ -357,13 +371,14 @@ const unsigned char meta_punch[] = {
    ====================================================================== */
 
 /* Platform: x_tile, y_tile, width_tiles */
-#define MAX_PLATS 10
+#define MAX_PLATS 30
 
 static unsigned char plat_x[MAX_PLATS];
 static unsigned char plat_y[MAX_PLATS];
 static unsigned char plat_w[MAX_PLATS];
+static unsigned char plat_pass[MAX_PLATS]; /* 1=can jump through from below */
 static unsigned char num_plats;
-static unsigned char ground_y_col[LEVEL_COLS]; /* ground Y pixel per column */
+static unsigned int  ground_y_col[LEVEL_COLS]; /* ground Y pixel per column */
 
 /* ======================================================================
    FORWARD DECLARATIONS
@@ -378,14 +393,14 @@ static void update_bullets(void);
 static void update_particles(void);
 static void check_pickups(void);
 static void draw_sprites(void);
-static void spawn_bullet(unsigned int x, unsigned char y,
+static void spawn_bullet(unsigned int x, unsigned int y,
                           signed char vx, signed char vy,
                           unsigned char owner);
-static void spawn_particle(unsigned int x, unsigned char y);
+static void spawn_particle(unsigned int x, unsigned int y);
 static void kill_enemy(unsigned char idx);
 static void kill_player(void);
-static void drop_weapon(unsigned int x, unsigned char y, unsigned char wpn, unsigned char ammo);
-static unsigned char check_solid(unsigned int cx, unsigned char cy);
+static void drop_weapon(unsigned int x, unsigned int y, unsigned char wpn, unsigned char ammo);
+static unsigned char check_solid(unsigned int cx, unsigned int cy);
 static void do_title_screen(void);
 static void do_superhot_screen(void);
 static void put_text(unsigned int adr, const char *str);
@@ -415,7 +430,7 @@ static void put_text(unsigned int adr, const char *str) {
 /* ======================================================================
    COLLISION: check if pixel position (cx, cy) is inside a solid tile
    ====================================================================== */
-static unsigned char check_solid(unsigned int cx, unsigned char cy) {
+static unsigned char check_solid(unsigned int cx, unsigned int cy) {
     unsigned char col, row_tile;
 
     col = (unsigned char)(cx >> 3);  /* tile column */
@@ -428,6 +443,7 @@ static unsigned char check_solid(unsigned int cx, unsigned char cy) {
 
     /* Check platforms — uses ci to avoid clobbering caller's i */
     for (ci = 0; ci < num_plats; ++ci) {
+        if (solid_skip_pass && plat_pass[ci]) continue;
         if (col >= plat_x[ci] && col < plat_x[ci] + plat_w[ci]) {
             if (row_tile == plat_y[ci]) return 1;
         }
@@ -439,7 +455,7 @@ static unsigned char check_solid(unsigned int cx, unsigned char cy) {
 /* ======================================================================
    SPAWN HELPERS
    ====================================================================== */
-static void spawn_bullet(unsigned int x, unsigned char y,
+static void spawn_bullet(unsigned int x, unsigned int y,
                           signed char vx, signed char vy,
                           unsigned char owner) {
     for (si = 0; si < MAX_BULLETS; ++si) {
@@ -462,7 +478,7 @@ static void spawn_bullet(unsigned int x, unsigned char y,
     spawn_ammo = 0;
 }
 
-static void spawn_particle(unsigned int x, unsigned char y) {
+static void spawn_particle(unsigned int x, unsigned int y) {
     unsigned char n;
     for (n = 0; n < 4; ++n) {
         for (pj = 0; pj < MAX_PARTICLES; ++pj) {
@@ -483,7 +499,7 @@ static void spawn_particle(unsigned int x, unsigned char y) {
     }
 }
 
-static void drop_weapon(unsigned int x, unsigned char y, unsigned char wpn, unsigned char ammo) {
+static void drop_weapon(unsigned int x, unsigned int y, unsigned char wpn, unsigned char ammo) {
     if (wpn == WPN_NONE) return;
     /* Find ground below drop point */
     while (y < 232 && !check_solid(x + 4, y + 8)) {
@@ -552,11 +568,21 @@ static void add_platform(unsigned char xt, unsigned char yt, unsigned char w) {
     plat_x[num_plats] = xt;
     plat_y[num_plats] = yt;
     plat_w[num_plats] = w;
+    plat_pass[num_plats] = 0;
+    ++num_plats;
+}
+
+static void add_platform_pass(unsigned char xt, unsigned char yt, unsigned char w) {
+    if (num_plats >= MAX_PLATS) return;
+    plat_x[num_plats] = xt;
+    plat_y[num_plats] = yt;
+    plat_w[num_plats] = w;
+    plat_pass[num_plats] = 1;
     ++num_plats;
 }
 
 static void add_enemy(unsigned char idx, unsigned char type,
-                       unsigned int x, unsigned char y,
+                       unsigned int x, unsigned int y,
                        unsigned char facing, unsigned char wpn, unsigned char ammo) {
     en_type[idx] = type;
     en_x[idx] = x;
@@ -587,9 +613,13 @@ static void init_level(void) {
     p_anim = 0;
     p_anim_timer = 0;
     p_punch_timer = 0;
+    p_drop_timer = 0;
     p_facing = 0;
     p_crouch = 0;
     camera_x = 0;
+    camera_y = 0;
+    scroll_dir = 0;
+    elev_active = 0;
     pad = 0;
     pad_prev = 0;
     pad_new = 0;
@@ -602,6 +632,9 @@ static void init_level(void) {
     if (current_level == 0) {
         /* LEVEL 1: CORRIDOR — 2 screens wide (64 cols = 512 px) */
         level_width_px = 512;
+        level_height_px = 240;
+        scroll_dir = 0;
+        set_mirroring(MIRROR_VERTICAL);
 
         px = 24;
         py = FLOOR_Y - 16;
@@ -638,45 +671,84 @@ static void init_level(void) {
         add_enemy(5, ETYPE_RUSHER, 352, 16*8 - 16, OAM_FLIP_H, WPN_NONE, 0);
 
     } else if (current_level == 1) {
-        /* LEVEL 2: ELEVATOR — single screen */
+        /* LEVEL 2: ELEVATOR — 5-story vertical scrolling
+         * 256px wide × 480px tall (32 cols × 60 rows)
+         * Left cols 0-4: elevator shaft (walls + open shaft)
+         * Right cols 5-31: hallways per floor
+         * Floors at rows: 58, 46, 34, 22, 10 (bottom to top)
+         */
         level_width_px = 256;
+        level_height_px = 480;
+        scroll_dir = 1;
+        set_mirroring(MIRROR_HORIZONTAL);
+        elev_active = 1;
+        elev_y = 52 * 8 - 16; /* starts at bottom floor */
 
-        px = 24;
-        py = FLOOR_Y - 16;
+        /* Player starts at bottom floor */
+        px = 48;
+        py = 52 * 8 - 16;
         p_facing = 0;
 
-        /* Left wall column - floor goes all the way */
+        /* Ground closer to bottom floor — row 56, jumpable from floor 1 at row 52 */
+        for (i = 0; i < 32; ++i) {
+            ground_y_col[i] = 56 * 8;
+        }
 
-        /* Ledge 1 — 5 rows above ground */
-        add_platform(12, 21, 12);
+        /* Floor platforms aligned to attr boundaries (row%4==0)
+         * so brown palette doesn't bleed to ground/walls */
+        /* Floor platforms — start at col 4 (attr col 1, separate from wall at col 3)
+         * Rows aligned to 4n for clean attr coloring
+         * Floors: 52, 40, 28, 16, 4 (12 rows apart) */
+        add_platform_pass(4, 52, 24);
+        add_platform_pass(4, 40, 24);
+        add_platform_pass(4, 28, 24);
+        add_platform_pass(4, 16, 24);
+        add_platform_pass(4, 4, 24);
 
-        /* Ledge 2 — 5 rows above ledge 1 */
-        add_platform(4, 16, 8);
+        /* Stairs: Floor 1→2 (right side, going up-left) */
+        add_platform(24, 49, 3);
+        add_platform(20, 46, 3);
+        add_platform(16, 43, 3);
 
-        /* Ledge 3 — 5 rows above ledge 2 */
-        add_platform(14, 11, 10);
+        /* Stairs: Floor 2→3 (left side, going up-right) */
+        add_platform(8,  37, 3);
+        add_platform(12, 34, 3);
+        add_platform(16, 31, 3);
 
-        /* Top ledge — 5 rows above ledge 3 */
-        add_platform(4, 7, 8);
+        /* Stairs: Floor 3→4 (right side, going up-left) */
+        add_platform(24, 25, 3);
+        add_platform(20, 22, 3);
+        add_platform(16, 19, 3);
 
-        /* E1: Gunner, ground right */
-        add_enemy(0, ETYPE_GUNNER, 200, FLOOR_Y - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+        /* Stairs: Floor 4→5 (left side, going up-right) */
+        add_platform(8,  13, 3);
+        add_platform(12, 10, 3);
+        add_platform(16, 7, 3);
 
-        /* E2: Rusher, ledge 1 */
-        add_enemy(1, ETYPE_RUSHER, 140, 21*8 - 16, OAM_FLIP_H, WPN_NONE, 0);
+        /* E1: Gunner, floor 1 right */
+        add_enemy(0, ETYPE_GUNNER, 200, 52*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
-        /* E3: Gunner, ledge 2 */
-        add_enemy(2, ETYPE_GUNNER, 56, 16*8 - 16, 0, WPN_PISTOL, 3);
+        /* E2: Rusher, floor 2 */
+        add_enemy(1, ETYPE_RUSHER, 160, 40*8 - 16, OAM_FLIP_H, WPN_NONE, 0);
 
-        /* E4: Thrower, ledge 3 */
-        add_enemy(3, ETYPE_THROWER, 168, 11*8 - 16, OAM_FLIP_H, WPN_PISTOL, 1);
+        /* E3: Gunner, floor 2 left */
+        add_enemy(2, ETYPE_GUNNER, 56, 40*8 - 16, 0, WPN_PISTOL, 3);
 
-        /* E5: Shotgunner, top */
-        add_enemy(4, ETYPE_SHOTGUNNER, 56, 7*8 - 16, 0, WPN_SHOTGUN, 2);
+        /* E4: Shotgunner, floor 3 */
+        add_enemy(3, ETYPE_SHOTGUNNER, 180, 28*8 - 16, OAM_FLIP_H, WPN_SHOTGUN, 2);
+
+        /* E5: Thrower, floor 4 */
+        add_enemy(4, ETYPE_THROWER, 120, 16*8 - 16, 0, WPN_PISTOL, 1);
+
+        /* E6: Gunner, floor 5 (top) */
+        add_enemy(5, ETYPE_GUNNER, 200, 4*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
     } else {
         /* LEVEL 3: BAR — single screen */
         level_width_px = 256;
+        level_height_px = 240;
+        scroll_dir = 0;
+        set_mirroring(MIRROR_VERTICAL);
 
         px = 224;
         py = FLOOR_Y - 16;
@@ -730,25 +802,40 @@ static void init_level(void) {
 /* ======================================================================
    DRAW BACKGROUND (nametable)
    ====================================================================== */
-/* Draw a single column (world col) into the correct nametable position */
-static void draw_bg_column(unsigned char world_col) {
-    unsigned char nt_col, r, last_col;
+/* Compute VRAM address for a world tile position */
+static unsigned int tile_addr(unsigned char col, unsigned char row) {
     unsigned int base;
 
-    nt_col = world_col & 31;  /* 0-31 within each nametable */
-    base = (world_col < 32) ? NAMETABLE_A : NAMETABLE_B;
+    if (scroll_dir == 0) {
+        /* Horizontal scroll: nametables side by side (vertical mirroring) */
+        /* Cols 0-31 → $2000, cols 32-63 → $2400 */
+        base = (col < 32) ? NAMETABLE_A : NAMETABLE_B;
+        return base | ((unsigned int)row << 5) | (col & 31);
+    } else {
+        /* Vertical scroll: nametables stacked (horizontal mirroring) */
+        /* Rows 0-29 → $2000, rows 30-59 → $2800 */
+        base = (row < 30) ? NAMETABLE_A : NAMETABLE_C;
+        return base | ((unsigned int)(row % 30) << 5) | (col & 31);
+    }
+}
+
+/* Draw a single column (world col) into the correct nametable position */
+static void draw_bg_column(unsigned char world_col) {
+    unsigned char r, last_col, level_rows;
+
+    level_rows = (unsigned char)(level_height_px >> 3);
 
     /* Clear column */
-    for (r = 0; r < LEVEL_ROWS; ++r) {
-        vram_adr(base | ((unsigned int)r << 5) | nt_col);
+    for (r = 0; r < level_rows; ++r) {
+        vram_adr(tile_addr(world_col, r));
         vram_put(BG_EMPTY);
     }
 
     /* Wall on first and last column of level */
     last_col = (unsigned char)(level_width_px >> 3) - 1;
     if (world_col == 0 || world_col == last_col) {
-        for (r = 0; r < LEVEL_ROWS; ++r) {
-            vram_adr(base | ((unsigned int)r << 5) | nt_col);
+        for (r = 0; r < level_rows; ++r) {
+            vram_adr(tile_addr(world_col, r));
             vram_put(BG_WALL);
         }
         return;
@@ -756,12 +843,12 @@ static void draw_bg_column(unsigned char world_col) {
 
     /* Ground */
     if (world_col < LEVEL_COLS) {
-        r = ground_y_col[world_col] >> 3;
-        if (r < LEVEL_ROWS) {
-            vram_adr(base | ((unsigned int)r << 5) | nt_col);
+        r = (unsigned char)(ground_y_col[world_col] >> 3);
+        if (r < level_rows) {
+            vram_adr(tile_addr(world_col, r));
             vram_put(BG_FLOOR_TOP);
-            for (ty = r + 1; ty < LEVEL_ROWS; ++ty) {
-                vram_adr(base | ((unsigned int)ty << 5) | nt_col);
+            for (ty = r + 1; ty < level_rows; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
                 vram_put(BG_FLOOR_BODY);
             }
         }
@@ -770,19 +857,27 @@ static void draw_bg_column(unsigned char world_col) {
     /* Platforms that overlap this column */
     for (ci = 0; ci < num_plats; ++ci) {
         if (world_col >= plat_x[ci] && world_col < plat_x[ci] + plat_w[ci]) {
-            vram_adr(base | ((unsigned int)plat_y[ci] << 5) | nt_col);
-            vram_put(BG_FLOOR_TOP);
+            vram_adr(tile_addr(world_col, plat_y[ci]));
+            vram_put(plat_pass[ci] ? BG_FLOOR_PASS : BG_FLOOR_TOP);
+        }
+    }
+
+    /* Elevator shaft wall (col 3) for level 1 */
+    if (current_level == 1 && world_col == 3) {
+        for (r = 0; r < level_rows; ++r) {
+            vram_adr(tile_addr(world_col, r));
+            vram_put(BG_WALL);
         }
     }
 
     /* Level-specific decorations */
     if (current_level == 2) {
         if (world_col == 5) {
-            vram_adr(base | ((unsigned int)16 << 5) | nt_col);
+            vram_adr(tile_addr(world_col, 16));
             vram_put(door_open_flag ? BG_DOOR_OPEN : BG_DOOR_SHUT);
         }
         if (world_col >= 10 && world_col < 18) {
-            vram_adr(base | ((unsigned int)11 << 5) | nt_col);
+            vram_adr(tile_addr(world_col, 11));
             vram_put(BG_SHELF);
         }
     }
@@ -794,7 +889,7 @@ static void draw_bg_level(void) {
 
     ppu_off();
 
-    /* Clear both nametables */
+    /* Clear all nametables + attributes (avoids stale data after mirroring switch) */
     vram_adr(NAMETABLE_A);
     vram_fill(BG_EMPTY, 960);
     vram_adr(0x23C0);
@@ -803,11 +898,48 @@ static void draw_bg_level(void) {
     vram_fill(BG_EMPTY, 960);
     vram_adr(0x27C0);
     vram_fill(0x00, 64);
+    vram_adr(NAMETABLE_C);
+    vram_fill(BG_EMPTY, 960);
+    vram_adr(0x2BC0);
+    vram_fill(0x00, 64);
 
     /* Draw all columns in the level */
     level_cols_actual = (unsigned char)(level_width_px >> 3);
     for (c = 0; c < level_cols_actual; ++c) {
         draw_bg_column(c);
+    }
+
+    /* Set attribute table for pass-through platforms (palette 3 = brown) */
+    for (ci = 0; ci < num_plats; ++ci) {
+        unsigned char ax, nt_row, shift, first_ax, last_ax;
+        unsigned int attr_base;
+        unsigned char val;
+        if (!plat_pass[ci]) continue;
+
+        /* Attr columns that cover this platform's tile range */
+        /* Skip attr cols that overlap walls: col 0 (tiles 0-3) and last col */
+        first_ax = plat_x[ci] >> 2; /* first attr col */
+        last_ax = (plat_x[ci] + plat_w[ci] - 1) >> 2; /* last attr col */
+        if (first_ax < 1) first_ax = 1;  /* skip left wall attr col 0 */
+        if (last_ax > 6) last_ax = 6;    /* skip right wall attr col 7 */
+
+        for (ax = first_ax; ax <= last_ax; ++ax) {
+            if (scroll_dir == 0) {
+                nt_row = plat_y[ci];
+                attr_base = 0x23C0;
+            } else {
+                nt_row = plat_y[ci] % 30;
+                attr_base = (plat_y[ci] < 30) ? 0x23C0 : 0x2BC0;
+            }
+
+            /* Which 2x2 sub-block row: top (rows 0-1 of 4) or bottom (rows 2-3) */
+            shift = (nt_row & 2) ? 4 : 0;
+            /* Set both left and right 2x2 sub-blocks in this row to palette 3 */
+            val = (unsigned char)(3 << shift) | (unsigned char)(3 << (shift + 2));
+
+            vram_adr(attr_base + (unsigned int)(nt_row >> 2) * 8 + ax);
+            vram_put(val);
+        }
     }
 
 }
@@ -876,11 +1008,25 @@ static void update_player(void) {
         }
     }
 
+    /* --- Drop through platform (crouch + jump) --- */
+    if ((pad_new & PAD_A) && p_on_ground && p_crouch) {
+        /* Only drop through platforms, not the ground floor */
+        if (py + 16 < ground_y_col[(unsigned char)(px >> 3)]) {
+            /* Standing on a platform, not on ground — drop through */
+            py += 2;
+            p_on_ground = 0;
+            pvy = 2;
+            p_drop_timer = 8; /* ignore platform collision for 8 frames */
+            tick_advance = 1;
+        }
+    }
+
     /* --- Jump --- */
     if ((pad_new & PAD_A) && p_on_ground && !p_crouch) {
         pvy = -JUMP_VEL;
         pvy_frac = 0;
         p_on_ground = 0;
+        p_drop_timer = 0; /* cancel any active drop-through */
         tick_advance = 1;
     }
 
@@ -1012,21 +1158,37 @@ static void update_player(void) {
 
     /* --- Apply vertical movement with collision --- */
     if (pvy < 0) {
-        /* Moving up */
+        /* Moving up — skip pass-through platforms */
         py += pvy;
-        if (py < HUD_H) py = HUD_H;
+        if (py > 60000U) py = 0; /* unsigned underflow guard */
+        solid_skip_pass = 1;
         if (check_solid(px + 6, py)) {
-            ty = py >> 3;
-            py = ((ty + 1) << 3);
+            wy = py >> 3;
+            py = (wy + 1) << 3;
             pvy = 0;
             pvy_frac = 0;
         }
+        solid_skip_pass = 0;
     } else {
         /* Moving down or stationary */
         py += pvy;
-        if (check_solid(px + 4, py + 16) || check_solid(px + 10, py + 16)) {
-            ty = (py + 16) >> 3;
-            py = (ty << 3) - 16;
+        if (p_drop_timer > 0) {
+            /* During drop-through: only check ground, not platforms */
+            --p_drop_timer;
+            wy = (unsigned char)(px >> 3);
+            if (py + 16 >= ground_y_col[wy]) {
+                wy = ground_y_col[wy] >> 3;
+                py = (wy << 3) - 16;
+                pvy = 0;
+                pvy_frac = 0;
+                p_on_ground = 1;
+                p_drop_timer = 0;
+            } else {
+                p_on_ground = 0;
+            }
+        } else if (check_solid(px + 4, py + 16) || check_solid(px + 10, py + 16)) {
+            wy = (py + 16) >> 3;
+            py = (wy << 3) - 16;
             pvy = 0;
             pvy_frac = 0;
             p_on_ground = 1;
@@ -1036,7 +1198,32 @@ static void update_player(void) {
     }
 
     /* --- Check if fell off screen --- */
-    if (py > 232) {
+    /* --- Elevator platform --- */
+    if (elev_active) {
+        /* Check if player is standing on elevator (cols 1-2, within 2px of top) */
+        if (px < 24 && px + 12 > 8 &&
+            py + 16 >= elev_y && py + 16 <= elev_y + 4 && pvy >= 0) {
+            py = elev_y - 16;
+            pvy = 0;
+            pvy_frac = 0;
+            p_on_ground = 1;
+
+            /* Move elevator with UP/DOWN */
+            if ((pad & PAD_UP) && elev_y > 16) {
+                tick_advance = 1;
+                elev_y -= 2;
+                py -= 2;
+                if (elev_y > 60000U) elev_y = 0;
+            }
+            if ((pad & PAD_DOWN) && elev_y < level_height_px - 32) {
+                tick_advance = 1;
+                elev_y += 2;
+                py += 2;
+            }
+        }
+    }
+
+    if (py > level_height_px || py > 60000U) {
         kill_player();
     }
 
@@ -1177,8 +1364,8 @@ static void update_enemies(void) {
                 }
                 /* Ground check */
                 if (check_solid(en_x[i] + 6, en_y[i] + 16)) {
-                    tmp = (en_y[i] + 16) >> 3;
-                    en_y[i] = (tmp << 3) - 16;
+                    wy = (en_y[i] + 16) >> 3;
+                    en_y[i] = (wy << 3) - 16;
                     en_on_ground[i] = 1;
                 } else {
                     en_on_ground[i] = 0;
@@ -1186,27 +1373,27 @@ static void update_enemies(void) {
                 break;
 
             case ETYPE_GUNNER:
-                /* Stand and shoot at intervals — only if player is at similar height */
-                if (en_timer[i] >= 40 && en_ammo[i] > 0 && dist < 200 && ty < 12 && en_sight[i] >= SIGHT_TICKS) {
-                    en_timer[i] = 0;
-                    spawn_bullet(
-                        (dir < 0) ? en_x[i] - 4 : en_x[i] + 12,
-                        en_y[i] + 4,
-                        dir * BULLET_SPEED,
-                        0,
-                        1
-                    );
-                    --en_ammo[i];
-                    if (en_ammo[i] == 0) {
-                        /* Out of ammo — throw empty weapon, become rusher */
+                if (en_timer[i] >= 40 && dist < 200 && ty < 12 && en_sight[i] >= SIGHT_TICKS) {
+                    if (en_ammo[i] > 0) {
+                        /* Fire */
+                        en_timer[i] = 0;
+                        spawn_bullet(
+                            (dir < 0) ? en_x[i] - 4 : en_x[i] + 12,
+                            en_y[i] + 4,
+                            dir * BULLET_SPEED,
+                            0, 1
+                        );
+                        --en_ammo[i];
+                    } else {
+                        /* Out of ammo — throw empty weapon after delay */
+                        en_timer[i] = 0;
                         spawn_wpn = en_weapon[i];
                         spawn_ammo = 0;
                         spawn_bullet(
                             (dir < 0) ? en_x[i] - 4 : en_x[i] + 12,
                             en_y[i] + 4,
                             dir * THROW_SPEED,
-                            0,
-                            1
+                            0, 1
                         );
                         en_type[i] = ETYPE_RUSHER;
                         en_weapon[i] = WPN_NONE;
@@ -1215,24 +1402,25 @@ static void update_enemies(void) {
                 break;
 
             case ETYPE_SHOTGUNNER:
-                /* Stand and shoot spread — spread covers more vertical range */
-                if (en_timer[i] >= 60 && en_ammo[i] > 0 && dist < 180 && ty < 20 && en_sight[i] >= SIGHT_TICKS) {
-                    en_timer[i] = 0;
-                    wx = (dir < 0) ? en_x[i] - 4 : en_x[i] + 12;
-                    spawn_bullet(wx, en_y[i] + 2, dir * SHOTGUN_SPEED, -1, 1);
-                    spawn_bullet(wx, en_y[i] + 4, dir * SHOTGUN_SPEED,  0, 1);
-                    spawn_bullet(wx, en_y[i] + 6, dir * SHOTGUN_SPEED,  1, 1);
-                    --en_ammo[i];
-                    if (en_ammo[i] == 0) {
-                        /* Out of ammo — throw empty weapon, become rusher */
+                if (en_timer[i] >= 60 && dist < 180 && ty < 20 && en_sight[i] >= SIGHT_TICKS) {
+                    if (en_ammo[i] > 0) {
+                        /* Fire spread */
+                        en_timer[i] = 0;
+                        wx = (dir < 0) ? en_x[i] - 4 : en_x[i] + 12;
+                        spawn_bullet(wx, en_y[i] + 2, dir * SHOTGUN_SPEED, -1, 1);
+                        spawn_bullet(wx, en_y[i] + 4, dir * SHOTGUN_SPEED,  0, 1);
+                        spawn_bullet(wx, en_y[i] + 6, dir * SHOTGUN_SPEED,  1, 1);
+                        --en_ammo[i];
+                    } else {
+                        /* Out of ammo — throw empty weapon after delay */
+                        en_timer[i] = 0;
                         spawn_wpn = en_weapon[i];
                         spawn_ammo = 0;
                         spawn_bullet(
                             (dir < 0) ? en_x[i] - 4 : en_x[i] + 12,
                             en_y[i] + 4,
                             dir * THROW_SPEED,
-                            0,
-                            1
+                            0, 1
                         );
                         en_type[i] = ETYPE_RUSHER;
                         en_weapon[i] = WPN_NONE;
@@ -1284,7 +1472,7 @@ static void update_bullets(void) {
         bul_y[i] += bul_vy[i] * tick_advance;
 
         /* Off level bounds? */
-        if (bul_x[i] > 60000U || bul_x[i] > level_width_px - 4 || bul_y[i] < 4 || bul_y[i] > 232) {
+        if (bul_x[i] > 60000U || bul_x[i] > level_width_px - 4 || bul_y[i] > 60000U || bul_y[i] > level_height_px) {
             if (bul_wpn[i] != WPN_NONE && bul_ammo[i] > 0) {
                 /* Clamp position outside wall tiles for pickup */
                 if (bul_x[i] > 60000U) bul_x[i] = 10;
@@ -1379,23 +1567,25 @@ static void check_pickups(void) {
    ====================================================================== */
 static void draw_sprites(void) {
     unsigned char attr;
-    unsigned char scx; /* screen x after camera offset */
+    unsigned char scx, scy; /* screen coords after camera offset */
 
     spr_id = 0;
 
     /* --- Player --- */
     if (p_alive) {
         sx = (int)(px - camera_x);
-        if (sx > -16 && sx < 248) {
+        sy = (int)(py - camera_y);
+        if (sx > -16 && sx < 248 && sy > -16 && sy < 232) {
             scx = (unsigned char)sx;
+            scy = (unsigned char)sy;
             attr = PAL_PLAYER;
             if (p_anim == 3) {
                 if (p_facing == OAM_FLIP_H) {
-                    spr_id = oam_spr(scx + 8, py + 8, SPR_CROUCH_L, attr | OAM_FLIP_H, spr_id);
-                    spr_id = oam_spr(scx,     py + 8, SPR_CROUCH_R, attr | OAM_FLIP_H, spr_id);
+                    spr_id = oam_spr(scx + 8, scy + 8, SPR_CROUCH_L, attr | OAM_FLIP_H, spr_id);
+                    spr_id = oam_spr(scx,     scy + 8, SPR_CROUCH_R, attr | OAM_FLIP_H, spr_id);
                 } else {
-                    spr_id = oam_spr(scx,     py + 8, SPR_CROUCH_L, attr, spr_id);
-                    spr_id = oam_spr(scx + 8, py + 8, SPR_CROUCH_R, attr, spr_id);
+                    spr_id = oam_spr(scx,     scy + 8, SPR_CROUCH_L, attr, spr_id);
+                    spr_id = oam_spr(scx + 8, scy + 8, SPR_CROUCH_R, attr, spr_id);
                 }
             } else {
                 switch (p_anim) {
@@ -1406,15 +1596,15 @@ static void draw_sprites(void) {
                     default: tmp = SPR_STAND_TL; break;
                 }
                 if (p_facing == OAM_FLIP_H) {
-                    spr_id = oam_spr(scx + 8, py,     tmp,     attr | OAM_FLIP_H, spr_id);
-                    spr_id = oam_spr(scx,     py,     tmp + 1, attr | OAM_FLIP_H, spr_id);
-                    spr_id = oam_spr(scx + 8, py + 8, tmp + 2, attr | OAM_FLIP_H, spr_id);
-                    spr_id = oam_spr(scx,     py + 8, tmp + 3, attr | OAM_FLIP_H, spr_id);
+                    spr_id = oam_spr(scx + 8, scy,     tmp,     attr | OAM_FLIP_H, spr_id);
+                    spr_id = oam_spr(scx,     scy,     tmp + 1, attr | OAM_FLIP_H, spr_id);
+                    spr_id = oam_spr(scx + 8, scy + 8, tmp + 2, attr | OAM_FLIP_H, spr_id);
+                    spr_id = oam_spr(scx,     scy + 8, tmp + 3, attr | OAM_FLIP_H, spr_id);
                 } else {
-                    spr_id = oam_spr(scx,     py,     tmp,     attr, spr_id);
-                    spr_id = oam_spr(scx + 8, py,     tmp + 1, attr, spr_id);
-                    spr_id = oam_spr(scx,     py + 8, tmp + 2, attr, spr_id);
-                    spr_id = oam_spr(scx + 8, py + 8, tmp + 3, attr, spr_id);
+                    spr_id = oam_spr(scx,     scy,     tmp,     attr, spr_id);
+                    spr_id = oam_spr(scx + 8, scy,     tmp + 1, attr, spr_id);
+                    spr_id = oam_spr(scx,     scy + 8, tmp + 2, attr, spr_id);
+                    spr_id = oam_spr(scx + 8, scy + 8, tmp + 3, attr, spr_id);
                 }
             }
 
@@ -1429,7 +1619,7 @@ static void draw_sprites(void) {
                 }
                 spr_id = oam_spr(
                     (p_facing == OAM_FLIP_H) ? scx - 6 : scx + 12,
-                    py + 4,
+                    scy + 4,
                     tmp,
                     (p_facing == OAM_FLIP_H) ? PAL_PLAYER | OAM_FLIP_H : PAL_PLAYER,
                     spr_id
@@ -1443,37 +1633,39 @@ static void draw_sprites(void) {
         if (en_type[i] == ETYPE_NONE || en_state[i] == 3) continue;
 
         sx = (int)(en_x[i] - camera_x);
-        if (sx < -16 || sx > 240) continue;
+        sy = (int)(en_y[i] - camera_y);
+        if (sx < -16 || sx > 240 || sy < -16 || sy > 232) continue;
         scx = (unsigned char)sx;
+        scy = (unsigned char)sy;
 
         attr = PAL_ENEMY;
         if (en_facing[i] == OAM_FLIP_H) {
-            spr_id = oam_spr(scx + 8, en_y[i],     SPR_STAND_TL, attr | OAM_FLIP_H, spr_id);
-            spr_id = oam_spr(scx,     en_y[i],     SPR_STAND_TR, attr | OAM_FLIP_H, spr_id);
-            spr_id = oam_spr(scx + 8, en_y[i] + 8, SPR_STAND_BL, attr | OAM_FLIP_H, spr_id);
-            spr_id = oam_spr(scx,     en_y[i] + 8, SPR_STAND_BR, attr | OAM_FLIP_H, spr_id);
+            spr_id = oam_spr(scx + 8, scy,     SPR_STAND_TL, attr | OAM_FLIP_H, spr_id);
+            spr_id = oam_spr(scx,     scy,     SPR_STAND_TR, attr | OAM_FLIP_H, spr_id);
+            spr_id = oam_spr(scx + 8, scy + 8, SPR_STAND_BL, attr | OAM_FLIP_H, spr_id);
+            spr_id = oam_spr(scx,     scy + 8, SPR_STAND_BR, attr | OAM_FLIP_H, spr_id);
         } else {
-            spr_id = oam_spr(scx,     en_y[i],     SPR_STAND_TL, attr, spr_id);
-            spr_id = oam_spr(scx + 8, en_y[i],     SPR_STAND_TR, attr, spr_id);
-            spr_id = oam_spr(scx,     en_y[i] + 8, SPR_STAND_BL, attr, spr_id);
-            spr_id = oam_spr(scx + 8, en_y[i] + 8, SPR_STAND_BR, attr, spr_id);
+            spr_id = oam_spr(scx,     scy,     SPR_STAND_TL, attr, spr_id);
+            spr_id = oam_spr(scx + 8, scy,     SPR_STAND_TR, attr, spr_id);
+            spr_id = oam_spr(scx,     scy + 8, SPR_STAND_BL, attr, spr_id);
+            spr_id = oam_spr(scx + 8, scy + 8, SPR_STAND_BR, attr, spr_id);
         }
 
         /* Enemy weapon */
         if (en_weapon[i] == WPN_PISTOL || en_weapon[i] == WPN_BOTTLE) {
             spr_id = oam_spr(
                 (en_facing[i] == OAM_FLIP_H) ? scx - 6 : scx + 12,
-                en_y[i] + 4, SPR_PISTOL,
+                scy + 4, SPR_PISTOL,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         } else if (en_weapon[i] == WPN_SHOTGUN) {
             spr_id = oam_spr(
                 (en_facing[i] == OAM_FLIP_H) ? scx - 8 : scx + 12,
-                en_y[i] + 4, SPR_SHOTGUN_L,
+                scy + 4, SPR_SHOTGUN_L,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         } else if (en_weapon[i] == WPN_KATANA) {
             spr_id = oam_spr(
                 (en_facing[i] == OAM_FLIP_H) ? scx - 6 : scx + 12,
-                en_y[i] + 2, SPR_KATANA,
+                scy + 2, SPR_KATANA,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         }
     }
@@ -1482,8 +1674,10 @@ static void draw_sprites(void) {
     for (i = 0; i < MAX_BULLETS; ++i) {
         if (!bul_active[i]) continue;
         sx = (int)(bul_x[i] - camera_x);
-        if (sx < -8 || sx > 248) continue;
+        sy = (int)(bul_y[i] - camera_y);
+        if (sx < -8 || sx > 248 || sy < -8 || sy > 232) continue;
         scx = (unsigned char)sx;
+        scy = (unsigned char)sy;
         attr = (bul_owner[i] == 0) ? PAL_PLAYER : 0x03;
         if (bul_wpn[i] != WPN_NONE) {
             switch (bul_wpn[i]) {
@@ -1493,10 +1687,10 @@ static void draw_sprites(void) {
                 case WPN_BOTTLE:  tmp = SPR_BOTTLE;     break;
                 default:          tmp = SPR_BULLET;     break;
             }
-            spr_id = oam_spr(scx, bul_y[i], tmp,
+            spr_id = oam_spr(scx, scy, tmp,
                              (bul_vx[i] < 0) ? attr | OAM_FLIP_H : attr, spr_id);
         } else {
-            spr_id = oam_spr(scx, bul_y[i], SPR_BULLET, attr, spr_id);
+            spr_id = oam_spr(scx, scy, SPR_BULLET, attr, spr_id);
         }
     }
 
@@ -1504,8 +1698,10 @@ static void draw_sprites(void) {
     for (i = 0; i < MAX_PICKUPS; ++i) {
         if (pick_type[i] == WPN_NONE) continue;
         sx = (int)(pick_x[i] - camera_x);
-        if (sx < -8 || sx > 248) continue;
+        sy = (int)(pick_y[i] - camera_y);
+        if (sx < -8 || sx > 248 || sy < -8 || sy > 232) continue;
         scx = (unsigned char)sx;
+        scy = (unsigned char)sy;
         tmp = SPR_PISTOL;
         switch (pick_type[i]) {
             case WPN_PISTOL:  tmp = SPR_PISTOL;    break;
@@ -1513,17 +1709,29 @@ static void draw_sprites(void) {
             case WPN_KATANA:  tmp = SPR_KATANA;     break;
             case WPN_BOTTLE:  tmp = SPR_BOTTLE;     break;
         }
-        spr_id = oam_spr(scx, pick_y[i], tmp, PAL_PLAYER, spr_id);
+        spr_id = oam_spr(scx, scy, tmp, PAL_PLAYER, spr_id);
     }
 
     /* --- Particles --- */
     for (i = 0; i < MAX_PARTICLES; ++i) {
         if (!part_active[i]) continue;
         sx = (int)(part_x[i] - camera_x);
-        if (sx < -8 || sx > 248) continue;
-        spr_id = oam_spr((unsigned char)sx, part_y[i],
+        sy = (int)(part_y[i] - camera_y);
+        if (sx < -8 || sx > 248 || sy < -8 || sy > 232) continue;
+        spr_id = oam_spr((unsigned char)sx, (unsigned char)sy,
                           SPR_SHATTER1 + (i & 3),
                           PAL_ENEMY, spr_id);
+    }
+
+    /* --- Elevator platform sprite (3 tiles wide) --- */
+    if (elev_active) {
+        sy = (int)(elev_y - camera_y);
+        if (sy > -8 && sy < 232) {
+            scy = (unsigned char)sy;
+            spr_id = oam_spr(8,  scy, SPR_SHOTGUN_L, PAL_PLAYER, spr_id);
+            spr_id = oam_spr(16, scy, SPR_SHOTGUN_L, PAL_PLAYER, spr_id);
+            spr_id = oam_spr(24, scy, SPR_SHOTGUN_L, PAL_PLAYER, spr_id);
+        }
     }
 
     /* --- HUD as sprites (don't scroll) --- */
@@ -1569,21 +1777,27 @@ static void update_camera(void) {
     unsigned int target;
     unsigned int max_cam;
 
-    /* Center camera on player, clamped to level bounds */
-    if (px > 128) {
-        target = px - 128;
-    } else {
-        target = 0;
-    }
-
-    max_cam = level_width_px - 256;
+    /* Horizontal camera */
     if (level_width_px <= 256) {
         camera_x = 0;
     } else {
+        target = (px > 128) ? px - 128 : 0;
+        max_cam = level_width_px - 256;
         if (target > max_cam) target = max_cam;
         camera_x = target;
     }
-    scroll(camera_x, 0);
+
+    /* Vertical camera */
+    if (level_height_px <= 240) {
+        camera_y = 0;
+    } else {
+        target = (py > 120) ? py - 120 : 0;
+        max_cam = level_height_px - 240;
+        if (target > max_cam) target = max_cam;
+        camera_y = target;
+    }
+
+    scroll(camera_x, camera_y);
 }
 
 /* ======================================================================

@@ -118,6 +118,48 @@ _exit:
     stx DMC_FREQ
     stx PPU_CTRL
 
+; --- MMC1 init: reset shift register, set vertical mirroring + 32KB PRG mode ---
+    lda #$80
+    sta $8000           ; reset MMC1 shift register
+
+    ; Write control register ($8000): %00010 = vertical mirroring, 32KB PRG mode
+    ; MMC1 uses 5 serial writes (bit 0 of each byte, LSB first)
+    ; Value $0E = %01110: vertical mirror (bit0-1=2), PRG fixed $C000 (bit2-3=3), CHR 8KB (bit4=0)
+    lda #%00001110      ; bit 0 = 0
+    sta $8000
+    lsr a               ; bit 0 = 1
+    sta $8000
+    lsr a               ; bit 0 = 1
+    sta $8000
+    lsr a               ; bit 0 = 1
+    sta $8000
+    lsr a               ; bit 0 = 0 (5th write latches)
+    sta $8000
+
+    ; CHR bank 0 = 0
+    lda #$00
+    sta $A000
+    lsr a
+    sta $A000
+    lsr a
+    sta $A000
+    lsr a
+    sta $A000
+    lsr a
+    sta $A000
+
+    ; PRG bank = 0 (for 32KB mode, doesn't matter much)
+    lda #$00
+    sta $E000
+    lsr a
+    sta $E000
+    lsr a
+    sta $E000
+    lsr a
+    sta $E000
+    lsr a
+    sta $E000
+
 initPPU:
 
     bit PPU_STATUS
@@ -231,6 +273,28 @@ detectNTSC:
 	sta PPU_OAM_ADDR
 
 	jmp _main
+
+; --- MMC1 mirroring control (callable from C) ---
+; void __fastcall__ set_mirroring(unsigned char mode);
+; mode: 0=single-lower, 1=single-upper, 2=vertical, 3=horizontal
+	.export _set_mirroring
+_set_mirroring:
+	; A has the mirroring mode (0-3)
+	; We need to write to MMC1 control register ($8000)
+	; Full value: (mode & 3) | %01100 = mirroring + 32KB PRG + 8KB CHR
+	and #$03
+	ora #$0C        ; PRG 32KB mode (bits 2-3 = 3), CHR 8KB (bit 4 = 0)
+	; Serial write 5 bits to $8000
+	sta $8000
+	lsr a
+	sta $8000
+	lsr a
+	sta $8000
+	lsr a
+	sta $8000
+	lsr a
+	sta $8000
+	rts
 
 	.include "display.sinc"
 

@@ -22,18 +22,19 @@ Three levels. No checkpoints. **SUPER. HOT.**
 |--------|--------|
 | D-pad Left/Right | Walk (advances time) |
 | D-pad Down | Crouch / Pick up weapon |
-| A | Jump |
+| D-pad Down + A | Drop through platform |
+| A | Jump (passes through brown platforms) |
 | B | Punch / Shoot / Swing katana |
 | B + direction | Throw held weapon |
 | B (empty gun) | Auto-throw empty weapon |
 | Start | Start game |
 
-Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (long melee), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above!
+Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (long melee), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+jump.
 
 ### Levels
 
 1. **CORRIDOR** — 6 enemies across 2 scrolling screens. Learn the time mechanic the hard way.
-2. **ELEVATOR** — 5 enemies on stacked platforms. Vertical pressure.
+2. **ELEVATOR** — 6 enemies across 5 stories with smooth vertical scrolling. Ride the elevator or take the stairs. Brown floors can be jumped through.
 3. **BAR** — 7 enemies. Tight spaces, every weapon type, and a locked back room with a katana-wielding boss.
 
 ## Building
@@ -74,11 +75,11 @@ sound/               Reserved for FamiStudio exports
 
 ## Technical Details
 
-- **Target:** NES / Famicom (NROM, Mapper 0)
+- **Target:** NES / Famicom (MMC1, Mapper 1)
 - **ROM:** 32KB PRG-ROM + 8KB CHR-ROM
 - **Toolchain:** cc65 + ca65 + ld65 with [neslib](https://github.com/clbr/neslib)
-- **Resolution:** 256x240
-- **Palette:** Black/white/grey environments, red enemies. 4 sprite palettes, 4 BG palettes.
+- **Resolution:** 256x240, horizontal and vertical scrolling via switchable mirroring
+- **Palette:** Black/white/grey environments, red enemies, brown pass-through platforms. 4 sprite palettes, 4 BG palettes.
 
 ## Credits
 

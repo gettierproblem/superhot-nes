@@ -513,6 +513,18 @@ floor_body = [
     [2,2,2,2,2,2,2,2],
 ]
 
+# Pass-through floor (dashed thin line)
+floor_pass = [
+    [0,0,0,0,0,0,0,0],
+    [3,3,0,3,3,0,3,3],
+    [1,1,0,1,1,0,1,1],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+]
+
 # Dark grey fill
 dark_fill = [
     [1,1,1,1,1,1,1,1],
@@ -1478,8 +1490,11 @@ def main():
     # $0C: light grey fill
     bg_tiles.append(make_tile(light_fill))
 
-    # $0D-$20: reserved (empty)
-    for i in range(0x0D, 0x21):
+    # $0D: pass-through floor (dashed)
+    bg_tiles.append(make_tile(floor_pass))
+
+    # $0E-$20: reserved (empty)
+    for i in range(0x0E, 0x21):
         bg_tiles.append(empty_tile())
 
     # $21-$3A: A-Z (ASCII 'A'=0x41, so tile = char - 0x20)
