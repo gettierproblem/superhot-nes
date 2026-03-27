@@ -7,3 +7,4 @@ _deps/
 tools/mesen/
 .DS_Store
 Thumbs.db
+*.wav

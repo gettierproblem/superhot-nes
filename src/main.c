@@ -16,6 +16,18 @@
 
 /* MMC1 mirroring control (defined in crt0.s) */
 void __fastcall__ set_mirroring(unsigned char mode);
+
+/* FamiTone2 SFX playback (neslib wrapper) */
+void __fastcall__ sfx_play(unsigned char effect, unsigned char channel);
+#define SFX_GUNSHOT    1
+#define SFX_JUMP       2
+#define SFX_ENEMY_DEATH 3
+#define SFX_CH0        0
+
+/* neslib music/sfx (backed by FamiTone2) */
+void __fastcall__ music_play(unsigned char song);
+void __fastcall__ music_stop(void);
+void __fastcall__ music_pause(unsigned char pause);
 #define MIRROR_VERTICAL   2
 #define MIRROR_HORIZONTAL 3
 
@@ -530,6 +542,7 @@ static void kill_enemy(unsigned char idx) {
     en_state[idx] = 3; /* dead */
     en_type[idx] = ETYPE_NONE;
     spawn_particle(en_x[idx] + 4, en_y[idx] + 4);
+    sfx_play(SFX_ENEMY_DEATH, SFX_CH0);
 
     /* Drop weapon */
     if (en_weapon[idx] != WPN_NONE) {
@@ -1090,6 +1103,7 @@ static void update_player(void) {
         pvy_frac = 0;
         p_on_ground = 0;
         p_drop_timer = 0; /* cancel any active drop-through */
+        sfx_play(SFX_JUMP, SFX_CH0);
         tick_advance = 1;
     }
 
@@ -1134,6 +1148,7 @@ static void update_player(void) {
             p_weapon = WPN_NONE;
         } else if (p_weapon == WPN_PISTOL && p_ammo > 0) {
             /* SHOOT pistol — lower when crouched */
+            sfx_play(SFX_GUNSHOT, SFX_CH0);
             spawn_bullet(
                 (p_facing == OAM_FLIP_H) ? px - 4 : px + 12,
                 py + (p_crouch ? 10 : 4),
@@ -1144,6 +1159,7 @@ static void update_player(void) {
             --p_ammo;
         } else if (p_weapon == WPN_SHOTGUN && p_ammo > 0) {
             /* SHOOT shotgun - 3 bullet spread — lower when crouched */
+            sfx_play(SFX_GUNSHOT, SFX_CH0);
             wx = (p_facing == OAM_FLIP_H) ? px - 4 : px + 12;
             wy = py + (p_crouch ? 8 : 2);
             spawn_bullet(wx, wy,     (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED, -1, 0);
@@ -1488,6 +1504,7 @@ static void update_enemies(void) {
                 if (en_timer[i] >= 40 && dist < 200 && ty < 12 && en_sight[i] >= SIGHT_TICKS) {
                     if (en_ammo[i] > 0) {
                         /* Fire — lower bullet if crouched */
+                        sfx_play(SFX_GUNSHOT, SFX_CH0);
                         en_timer[i] = 0;
                         spawn_bullet(
                             (dir < 0) ? en_x[i] - 4 : en_x[i] + 12,
@@ -1517,6 +1534,7 @@ static void update_enemies(void) {
                 if (en_timer[i] >= 60 && dist < 180 && ty < 20 && en_sight[i] >= SIGHT_TICKS) {
                     if (en_ammo[i] > 0) {
                         /* Fire spread — lower if crouched */
+                        sfx_play(SFX_GUNSHOT, SFX_CH0);
                         en_timer[i] = 0;
                         wx = (dir < 0) ? en_x[i] - 4 : en_x[i] + 12;
                         wy = en_y[i] + ((en_crouch[i] >= 15) ? 8 : 2);
@@ -2046,6 +2064,25 @@ static void do_title_screen(void) {
 /* ======================================================================
    SUPER. HOT. VICTORY SCREEN
    ====================================================================== */
+static void play_dpcm_superhot(void) {
+    /* NES APU DPCM registers */
+    /* $4010: flags/rate — rate index 8 (8363Hz), no loop */
+    *(unsigned char*)0x4010 = 0x08;
+    /* $4011: direct load — start at midpoint */
+    *(unsigned char*)0x4011 = 0x40;
+    /* $4012: sample address — ($F000 - $C000) / 64 = 192 */
+    *(unsigned char*)0x4012 = 192;
+    /* $4013: sample length — (1217 - 1) / 16 = 76 */
+    *(unsigned char*)0x4013 = 76;
+    /* Enable DPCM channel (bit 4 of $4015) */
+    *(unsigned char*)0x4015 = 0x1F;
+}
+
+static void stop_dpcm(void) {
+    /* Disable DPCM channel */
+    *(unsigned char*)0x4015 = 0x0F;
+}
+
 static void do_superhot_screen(void) {
     unsigned char frames;
     unsigned char phase;
@@ -2053,6 +2090,7 @@ static void do_superhot_screen(void) {
     unsigned char max_frames;
 
     scroll(0, 0);
+    oam_clear();
     ppu_off();
 
     /* Use red accent palette for the text */
@@ -2064,24 +2102,46 @@ static void do_superhot_screen(void) {
     vram_adr(0x23C0);
     vram_fill(0x00, 64);
 
-    /* Draw initial phase (SUPER) */
+    /* Draw initial phase (SUPER) + prompt */
     draw_title_big_text(0);
+    put_text(NTADR_A(7, 22), "PRESS START");
     ppu_on_all();
 
-    last_phase = 0;
-    max_frames = (current_level >= 3) ? 180 : 90;
+    /* Play "SUPER HOT" voice sample */
+    play_dpcm_superhot();
 
-    for (frames = 0; frames < max_frames; ++frames) {
+    last_phase = 0;
+    frames = 0;
+    max_frames = 0; /* reuse as DPCM retrigger counter */
+
+    /* Loop until button press */
+    while (1) {
         ppu_wait_nmi();
+
+        pad = pad_trigger(0);
+        if (pad & (PAD_START | PAD_A | PAD_B)) break;
 
         phase = (frames / 30) & 1;
         if (phase != last_phase) {
             last_phase = phase;
             ppu_off();
             draw_title_big_text(phase);
+            put_text(NTADR_A(7, 22), "PRESS START");
             ppu_on_all();
         }
+
+        ++frames;
+        if (frames >= 60) frames = 0;
+
+        /* Retrigger DPCM with gap: ~69 frames sample + 15 frames silence */
+        ++max_frames;
+        if (max_frames >= 84) {
+            max_frames = 0;
+            play_dpcm_superhot();
+        }
     }
+
+    stop_dpcm();
 }
 
 /* ======================================================================
@@ -2105,6 +2165,7 @@ next_level:
     draw_background();
     game_state = GS_PLAYING;
     shimmer_timer = 0;
+    music_play(0);
 
     /* === MAIN GAME LOOP === */
     while (1) {
@@ -2127,6 +2188,7 @@ next_level:
                         ppu_wait_nmi();
                     }
                     set_vram_update(0);
+                    music_stop();
                     do_superhot_screen();
 
                     if (current_level < 3) {
@@ -2155,6 +2217,7 @@ next_level:
                     init_level();
                     draw_background();
                     game_state = GS_PLAYING;
+                    music_play(0);
                 }
 
                 if (death_timer > 0) --death_timer;

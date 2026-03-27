@@ -14,9 +14,12 @@ echo "[2/3] Assembling..."
 ca65 -t nes -I lib -I "$CC65_HOME/asminc" -o obj/main.o obj/main.s
 ca65 -t nes -I lib -I "$CC65_HOME/asminc" -o obj/crt0.o lib/crt0.s
 ca65 -t nes -I lib -I "$CC65_HOME/asminc" -o obj/chr.o lib/chr.s
+ca65 -t nes -I lib -I "$CC65_HOME/asminc" -o obj/dpcm.o sound/dpcm.s
+ca65 -t nes -I lib -I "$CC65_HOME/asminc" -o obj/music_data.o sound/music_data.s
+ca65 -t nes -I lib -I "$CC65_HOME/asminc" -o obj/sfx_data.o sound/sfx_data.s
 
 echo "[3/3] Linking $TARGET..."
-ld65 -C cfg/game.cfg -L "$CC65_HOME/lib" -o "$TARGET" obj/crt0.o obj/main.o obj/chr.o nes.lib
+ld65 -C cfg/game.cfg -L "$CC65_HOME/lib" -o "$TARGET" obj/crt0.o obj/main.o obj/chr.o obj/dpcm.o obj/music_data.o obj/sfx_data.o nes.lib
 
 echo ""
 echo "Build successful: $TARGET"

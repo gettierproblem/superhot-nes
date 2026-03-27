@@ -6,7 +6,7 @@ FT_DPCM_OFF		= $c000
 FT_SFX_STREAMS		= 4
 
 .define FT_DPCM_ENABLE  0
-.define FT_SFX_ENABLE   0
+.define FT_SFX_ENABLE   1
 
 	.export _exit,__STARTUP__:absolute=1
 	.import initlib,push0,popa,popax,_main,zerobss,copydata
@@ -256,12 +256,18 @@ detectNTSC:
 
 	jsr _ppu_off
 
-	; Skip FamiTone init - no music data needed
-	; When you're ready for music, uncomment and provide data:
-	; ldx #<music_data
-	; ldy #>music_data
-	; lda <NTSC_MODE
-	; jsr FamiToneInit
+	.import _music_data_superhot_bgm, _sounds
+
+	; Initialize FamiTone with music
+	ldx #<_music_data_superhot_bgm
+	ldy #>_music_data_superhot_bgm
+	lda #1				;NTSC
+	jsr FamiToneInit
+
+	; Initialize SFX
+	ldx #<_sounds
+	ldy #>_sounds
+	jsr FamiToneSfxInit
 
 	lda #$fd
 	sta <RAND_SEED
@@ -273,6 +279,19 @@ detectNTSC:
 	sta PPU_OAM_ADDR
 
 	jmp _main
+
+; --- Sound effects (callable from C) ---
+	.export _sfx_gunshot_asm
+_sfx_gunshot_asm:
+	lda #$0F
+	sta $4015		; enable pulse1, pulse2, triangle, noise
+	lda #$3F		; halt length counter, constant volume, vol=15
+	sta $400C
+	lda #$03		; noise period
+	sta $400E
+	lda #$08		; length counter load (short burst)
+	sta $400F
+	rts
 
 ; --- MMC1 mirroring control (callable from C) ---
 ; void __fastcall__ set_mirroring(unsigned char mode);
