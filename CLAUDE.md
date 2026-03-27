@@ -61,9 +61,17 @@ BG pattern table 1: wall/floor/platform tiles, door, bar counter, shelf, column,
 
 Sprites are shared between player (palette 0: white) and enemies (palette 1: red) — same tiles, different palette.
 
+### Audio
+
+- **FamiTone2**: Music engine and SFX system, initialized in crt0.s startup. `FamiToneUpdate` runs every NMI via neslib. SFX enabled (`FT_SFX_ENABLE=1`).
+- **Music**: Composed in FamiStudio text format (`sound/superhot_bgm.txt`), exported via CLI: `FamiStudio sound/superhot_bgm.txt famitone2-asm-export sound/music_data.s -famitone2-asm-format:ca65`. Plays on title screen and death; stops during gameplay. Melody transcribed from SUPERHOT:MCD end chiptune via librosa pitch analysis.
+- **SFX**: Composed in FamiStudio (`sound/sfx.txt`), exported: `FamiStudio sound/sfx.txt famitone2-asm-sfx-export sound/sfx_data.s -famitone2-asm-format:ca65`. Effects: gunshot (noise ch), jump (pulse rising arp), enemy death (pulse descending). Called via `sfx_play(effect, channel)`.
+- **DPCM**: "SUPER HOT" voice clip generated from Windows TTS, converted to NES DPCM via `tools/gen_dpcm.py`. Stored in DPCM segment at $F000. Played by writing APU registers directly ($4010-$4015) during victory screen. Loops with quarter-second gaps.
+- **Important**: C pointer writes to APU registers (`*(unsigned char*)0x4000 = val`) don't work reliably in cc65. Use FamiTone2's system or assembly functions for sound. DPCM is the exception — direct writes to $4010-$4015 work.
+
 ### Title Screen
 
-Alternates between "SUPER" and "HOT" in big block letters every 0.5 seconds (same effect as between-level screens). Shows "DEMAKE", "AUTHOR: VERI", and "PRESS START". Only redraws big text when phase changes to avoid flicker.
+Alternates between "SUPER" and "HOT" in big block letters every 0.5 seconds (same effect as between-level screens). Shows "DEMAKE", "AUTHOR: VERI", and "PRESS START". Only redraws big text when phase changes to avoid flicker. Music plays during title screen.
 
 ## Testing
 

@@ -73,7 +73,7 @@ cfg/game.cfg         Linker memory map
 chr/game.chr         8KB tile graphics (generated)
 tools/gen_chr.py     Tile generator (edit this for art changes)
 tools/mesen/         Mesen2 emulator
-sound/               Reserved for FamiStudio exports
+sound/               FamiTone2 music + SFX data, DPCM voice, FamiStudio sources
 ```
 
 ## Technical Details
@@ -82,6 +82,7 @@ sound/               Reserved for FamiStudio exports
 - **ROM:** 32KB PRG-ROM + 8KB CHR-ROM
 - **Toolchain:** cc65 + ca65 + ld65 with [neslib](https://github.com/clbr/neslib)
 - **Resolution:** 256x240, horizontal and vertical scrolling via switchable mirroring
+- **Audio:** FamiTone2 music engine + SFX. DPCM "SUPER HOT" voice on victory screen. Music plays on title screen and death; gameplay is silent with SFX only (gunshots, jump, enemy death).
 - **Palette:** Black/white/grey environments, red enemies, brown pass-through platforms. 4 sprite palettes, 4 BG palettes.
 
 ## Credits
