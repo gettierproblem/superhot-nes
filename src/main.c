@@ -561,6 +561,7 @@ static void kill_player(void) {
     p_alive = 0;
     death_timer = 60;
     game_state = GS_DEAD;
+    music_play(0);
 }
 
 /* ======================================================================
@@ -2016,6 +2017,7 @@ static void do_title_screen(void) {
     unsigned char frame_cnt;
 
     scroll(0, 0);
+    music_play(0);
     ppu_off();
     pal_bg(pal_bg_title);
     pal_spr(pal_spr_game);
@@ -2165,7 +2167,7 @@ next_level:
     draw_background();
     game_state = GS_PLAYING;
     shimmer_timer = 0;
-    music_play(0);
+    music_stop();
 
     /* === MAIN GAME LOOP === */
     while (1) {
@@ -2217,7 +2219,7 @@ next_level:
                     init_level();
                     draw_background();
                     game_state = GS_PLAYING;
-                    music_play(0);
+                    music_stop();
                 }
 
                 if (death_timer > 0) --death_timer;
