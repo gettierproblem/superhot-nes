@@ -222,6 +222,7 @@ static unsigned char en_ammo[MAX_ENEMIES];
 static unsigned char en_state[MAX_ENEMIES];     /* 0=idle, 1=active, 2=attacking, 3=dead */
 static unsigned char en_timer[MAX_ENEMIES];
 static unsigned char en_sight[MAX_ENEMIES];   /* ticks enemy has had line-of-sight */
+static unsigned char en_crouch[MAX_ENEMIES];  /* ticks enemy has been crouching (0=standing) */
 static unsigned char en_on_ground[MAX_ENEMIES];
 
 /* bullets */
@@ -560,6 +561,7 @@ static void clear_entities(void) {
         en_state[i] = 0;
         en_weapon[i] = WPN_NONE;
         en_sight[i] = 0;
+        en_crouch[i] = 0;
     }
     for (i = 0; i < MAX_BULLETS; ++i) { bul_active[i] = 0; bul_wpn[i] = WPN_NONE; }
     for (i = 0; i < MAX_PICKUPS; ++i)  pick_type[i] = WPN_NONE;
@@ -1131,21 +1133,22 @@ static void update_player(void) {
             spawn_bullet(px + 4, py + 4, throw_vx, 0, 0);
             p_weapon = WPN_NONE;
         } else if (p_weapon == WPN_PISTOL && p_ammo > 0) {
-            /* SHOOT pistol */
+            /* SHOOT pistol — lower when crouched */
             spawn_bullet(
                 (p_facing == OAM_FLIP_H) ? px - 4 : px + 12,
-                py + 4,
+                py + (p_crouch ? 10 : 4),
                 (p_facing == OAM_FLIP_H) ? -BULLET_SPEED : BULLET_SPEED,
                 0,
                 0
             );
             --p_ammo;
         } else if (p_weapon == WPN_SHOTGUN && p_ammo > 0) {
-            /* SHOOT shotgun - 3 bullet spread */
+            /* SHOOT shotgun - 3 bullet spread — lower when crouched */
             wx = (p_facing == OAM_FLIP_H) ? px - 4 : px + 12;
-            spawn_bullet(wx, py + 2, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED, -1, 0);
-            spawn_bullet(wx, py + 4, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  0, 0);
-            spawn_bullet(wx, py + 6, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  1, 0);
+            wy = py + (p_crouch ? 8 : 2);
+            spawn_bullet(wx, wy,     (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED, -1, 0);
+            spawn_bullet(wx, wy + 2, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  0, 0);
+            spawn_bullet(wx, wy + 4, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  1, 0);
             --p_ammo;
         } else if (!p_on_ground) {
             /* JUMP KICK - airborne melee, extends forward and below */
@@ -1411,6 +1414,15 @@ static void update_enemies(void) {
             en_sight[i] = 0;
         }
 
+        /* Enemy crouch reaction: crouch when player crouches nearby */
+        if (p_crouch && dist < 200 && ty < 20 &&
+            (en_type[i] == ETYPE_GUNNER || en_type[i] == ETYPE_SHOTGUNNER)) {
+            en_crouch[i] += tick_advance;
+            if (en_crouch[i] > 20) en_crouch[i] = 20; /* cap at fully crouched */
+        } else {
+            if (en_crouch[i] > 0) en_crouch[i] -= 1; /* stand back up gradually */
+        }
+
         switch (en_type[i]) {
             case ETYPE_RUSHER:
                 /* Walk toward player — only if within ~1.5 screens */
@@ -1475,11 +1487,11 @@ static void update_enemies(void) {
             case ETYPE_GUNNER:
                 if (en_timer[i] >= 40 && dist < 200 && ty < 12 && en_sight[i] >= SIGHT_TICKS) {
                     if (en_ammo[i] > 0) {
-                        /* Fire */
+                        /* Fire — lower bullet if crouched */
                         en_timer[i] = 0;
                         spawn_bullet(
                             (dir < 0) ? en_x[i] - 4 : en_x[i] + 12,
-                            en_y[i] + 4,
+                            en_y[i] + ((en_crouch[i] >= 15) ? 10 : 4),
                             dir * BULLET_SPEED,
                             0, 1
                         );
@@ -1504,12 +1516,13 @@ static void update_enemies(void) {
             case ETYPE_SHOTGUNNER:
                 if (en_timer[i] >= 60 && dist < 180 && ty < 20 && en_sight[i] >= SIGHT_TICKS) {
                     if (en_ammo[i] > 0) {
-                        /* Fire spread */
+                        /* Fire spread — lower if crouched */
                         en_timer[i] = 0;
                         wx = (dir < 0) ? en_x[i] - 4 : en_x[i] + 12;
-                        spawn_bullet(wx, en_y[i] + 2, dir * SHOTGUN_SPEED, -1, 1);
-                        spawn_bullet(wx, en_y[i] + 4, dir * SHOTGUN_SPEED,  0, 1);
-                        spawn_bullet(wx, en_y[i] + 6, dir * SHOTGUN_SPEED,  1, 1);
+                        wy = en_y[i] + ((en_crouch[i] >= 15) ? 8 : 2);
+                        spawn_bullet(wx, wy,     dir * SHOTGUN_SPEED, -1, 1);
+                        spawn_bullet(wx, wy + 2, dir * SHOTGUN_SPEED,  0, 1);
+                        spawn_bullet(wx, wy + 4, dir * SHOTGUN_SPEED,  1, 1);
                         --en_ammo[i];
                     } else {
                         /* Out of ammo — throw empty weapon after delay */
@@ -1739,7 +1752,7 @@ static void draw_sprites(void) {
                 }
                 spr_id = oam_spr(
                     (p_facing == OAM_FLIP_H) ? scx - 1 : scx + 8,
-                    scy + 4,
+                    p_crouch ? scy + 10 : scy + 4,
                     tmp,
                     (p_facing == OAM_FLIP_H) ? PAL_PLAYER | OAM_FLIP_H : PAL_PLAYER,
                     spr_id
@@ -1759,7 +1772,16 @@ static void draw_sprites(void) {
         scy = (unsigned char)sy;
 
         attr = PAL_ENEMY;
-        if (en_facing[i] == OAM_FLIP_H) {
+        if (en_crouch[i] >= 15) {
+            /* Crouched enemy — only bottom row (like player crouch) */
+            if (en_facing[i] == OAM_FLIP_H) {
+                spr_id = oam_spr(scx + 8, scy + 8, SPR_CROUCH_L, attr | OAM_FLIP_H, spr_id);
+                spr_id = oam_spr(scx,     scy + 8, SPR_CROUCH_R, attr | OAM_FLIP_H, spr_id);
+            } else {
+                spr_id = oam_spr(scx,     scy + 8, SPR_CROUCH_L, attr, spr_id);
+                spr_id = oam_spr(scx + 8, scy + 8, SPR_CROUCH_R, attr, spr_id);
+            }
+        } else if (en_facing[i] == OAM_FLIP_H) {
             spr_id = oam_spr(scx + 8, scy,     SPR_STAND_TL, attr | OAM_FLIP_H, spr_id);
             spr_id = oam_spr(scx,     scy,     SPR_STAND_TR, attr | OAM_FLIP_H, spr_id);
             spr_id = oam_spr(scx + 8, scy + 8, SPR_STAND_BL, attr | OAM_FLIP_H, spr_id);
@@ -1771,16 +1793,17 @@ static void draw_sprites(void) {
             spr_id = oam_spr(scx + 8, scy + 8, SPR_STAND_BR, attr, spr_id);
         }
 
-        /* Enemy weapon */
+        /* Enemy weapon — lower when crouched */
+        ty = (en_crouch[i] >= 15) ? scy + 10 : scy + 4;
         if (en_weapon[i] == WPN_PISTOL || en_weapon[i] == WPN_BOTTLE) {
             spr_id = oam_spr(
                 (en_facing[i] == OAM_FLIP_H) ? scx + 1 : scx + 8,
-                scy + 4, SPR_PISTOL,
+                ty, SPR_PISTOL,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         } else if (en_weapon[i] == WPN_SHOTGUN) {
             spr_id = oam_spr(
                 (en_facing[i] == OAM_FLIP_H) ? scx + 1 : scx + 6,
-                scy + 4, SPR_SHOTGUN_L,
+                ty, SPR_SHOTGUN_L,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         } else if (en_weapon[i] == WPN_KATANA) {
             /* Show horizontal katana when close to player (attacking) */

@@ -21,8 +21,9 @@ Four levels. No checkpoints. **SUPER. HOT.**
 | Button | Action |
 |--------|--------|
 | D-pad Left/Right | Walk (advances time) |
-| D-pad Down | Crouch / Pick up weapon |
+| D-pad Down | Crouch / Pick up weapon (advances time) |
 | D-pad Down + A | Drop through platform |
+| D-pad Down + B | Crouched shot (fires lower) |
 | A | Jump (passes through brown platforms) |
 | B | Punch / Shoot / Swing katana |
 | B (katana) | Always slash (cannot throw) |
@@ -30,7 +31,7 @@ Four levels. No checkpoints. **SUPER. HOT.**
 | B (empty gun) | Auto-throw empty weapon |
 | Start | Start game |
 
-Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (always slash, cannot throw), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+A.
+Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (always slash, cannot throw), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+jump. Enemies crouch and return fire when you crouch near them.
 
 ### Levels
 
