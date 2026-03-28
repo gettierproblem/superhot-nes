@@ -19,10 +19,13 @@ void __fastcall__ set_mirroring(unsigned char mode);
 
 /* FamiTone2 SFX playback (neslib wrapper) */
 void __fastcall__ sfx_play(unsigned char effect, unsigned char channel);
-#define SFX_GUNSHOT    1
-#define SFX_JUMP       2
-#define SFX_ENEMY_DEATH 3
-#define SFX_CH0        0
+#define SFX_GUNSHOT      1
+#define SFX_JUMP         2
+#define SFX_ENEMY_DEATH  3
+#define SFX_KATANA_SWING 4
+#define SFX_THROW        5
+#define SFX_CH0          0
+#define SFX_CH1          1
 
 /* neslib music/sfx (backed by FamiTone2) */
 void __fastcall__ music_play(unsigned char song);
@@ -1405,6 +1408,7 @@ static void update_player(void) {
 
         if (p_weapon == WPN_KATANA && p_on_ground) {
             /* SWING katana — only on ground, in air use kick instead */
+            sfx_play(SFX_KATANA_SWING, SFX_CH1);
             p_punch_timer = 8;
             for (i = 0; i < MAX_ENEMIES; ++i) {
                 if (en_type[i] == ETYPE_NONE || en_state[i] == 3) continue;
@@ -1420,6 +1424,7 @@ static void update_player(void) {
             }
         } else if (p_weapon != WPN_NONE && p_weapon != WPN_KATANA && (pad & (PAD_LEFT|PAD_RIGHT|PAD_UP))) {
             /* THROW weapon (directional) — not katana */
+            sfx_play(SFX_THROW, SFX_CH1);
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = p_weapon;
             spawn_ammo = p_ammo;
@@ -1428,6 +1433,7 @@ static void update_player(void) {
             p_ammo = 0;
         } else if (p_weapon != WPN_NONE && p_weapon != WPN_KATANA && p_ammo == 0) {
             /* AUTO-THROW empty weapon — not katana */
+            sfx_play(SFX_THROW, SFX_CH1);
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = p_weapon;
             spawn_ammo = 0;
@@ -1435,6 +1441,7 @@ static void update_player(void) {
             p_weapon = WPN_NONE;
         } else if (p_weapon == WPN_BOTTLE) {
             /* AUTO-THROW bottle — bottles are always thrown on B press */
+            sfx_play(SFX_THROW, SFX_CH1);
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = WPN_BOTTLE;
             spawn_ammo = p_ammo;

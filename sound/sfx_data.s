@@ -10,6 +10,8 @@ sounds:
 	.word @sfx_ntsc_gunshot
 	.word @sfx_ntsc_jump
 	.word @sfx_ntsc_enemydeath
+	.word @sfx_ntsc_katanaswing
+	.word @sfx_ntsc_weaponthrow
 
 @sfx_ntsc_dummysong:
 	.byte $89,$f0,$00
@@ -23,5 +25,12 @@ sounds:
 	.byte $81,$46,$82,$00,$80,$3c,$89,$f0,$02,$81,$54,$80,$3a,$02,$81,$6a
 	.byte $80,$38,$02,$81,$7e,$80,$36,$02,$81,$a9,$80,$34,$02,$81,$d5,$80
 	.byte $32,$02,$00
+@sfx_ntsc_katanaswing:
+	.byte $81,$2f,$82,$00,$80,$3c,$8a,$0e,$89,$3c,$01,$81,$3f,$80,$36,$8a
+	.byte $07,$89,$38,$01,$80,$30,$8a,$02,$89,$34,$01,$8a,$0d,$89,$31,$01
+	.byte $00
+@sfx_ntsc_weaponthrow:
+	.byte $8a,$0d,$89,$3a,$01,$8a,$02,$89,$38,$01,$8a,$09,$89,$35,$01,$8a
+	.byte $0d,$89,$33,$01,$8a,$02,$89,$31,$01,$00
 
 .export sounds
