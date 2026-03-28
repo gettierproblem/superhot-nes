@@ -1477,6 +1477,9 @@ def main():
         'C': [[0,1,1],[1,0,0],[1,0,0],[1,0,0],[0,1,1]],
         'D': [[1,1,0],[1,0,1],[1,0,1],[1,0,1],[1,1,0]],
         'E': [[1,1,1],[1,0,0],[1,1,0],[1,0,0],[1,1,1]],
+        'F': [[1,1,1],[1,0,0],[1,1,0],[1,0,0],[1,0,0]],
+        'G': [[0,1,1],[1,0,0],[1,0,1],[1,0,1],[0,1,1]],
+        'H': [[1,0,1],[1,0,1],[1,1,1],[1,0,1],[1,0,1]],
         'I': [[1,1,1],[0,1,0],[0,1,0],[0,1,0],[1,1,1]],
         'J': [[0,1,1],[0,0,1],[0,0,1],[1,0,1],[0,1,0]],
         'L': [[1,0,0],[1,0,0],[1,0,0],[1,0,0],[1,1,1]],
@@ -1557,6 +1560,23 @@ def main():
 
     # $36: shotgun slug
     spr_tiles.append(make_tile(slug_tile))
+
+    # $37-$39: GARAGE (3 tiles)
+    garage_tiles = make_label_tiles("GARAGE")
+    for t in garage_tiles:
+        spr_tiles.append(t)
+
+    # $3A-$3C: OFFICE (3 tiles)
+    office_tiles = make_label_tiles("OFFICE")
+    for t in office_tiles:
+        spr_tiles.append(t)
+
+    # $3D-$3E: CEO (2 tiles)
+    ceo_tiles = make_label_tiles("CEO")
+    for t in ceo_tiles:
+        spr_tiles.append(t)
+    if len(ceo_tiles) < 2:
+        spr_tiles.append(empty_tile())
 
     # Fill remaining sprite tiles with empty
     while len(spr_tiles) < 256:

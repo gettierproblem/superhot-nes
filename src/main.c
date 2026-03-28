@@ -82,6 +82,9 @@ void __fastcall__ music_pause(unsigned char pause);
 #define SPR_ELEVATOR  0x27  /* 4 tiles */
 #define SPR_BAR       0x2B  /* 2 tiles */
 #define SPR_DOJO      0x2D  /* 2 tiles */
+#define SPR_GARAGE    0x37  /* 3 tiles */
+#define SPR_OFFICE    0x3A  /* 3 tiles */
+#define SPR_CEO       0x3D  /* 2 tiles */
 #define SPR_SLASH_TL  0x2F
 #define SPR_SLASH_TR  0x30
 #define SPR_SLASH_BL  0x31
@@ -188,7 +191,7 @@ void __fastcall__ music_pause(unsigned char pause);
 
 /* game */
 static unsigned char game_state;
-static unsigned char current_level;    /* 0,1,2 */
+static unsigned char current_level;    /* 0-6: garage,corridor,dojo,bar,office,elevator,ceo */
 static unsigned char game_tick;        /* incremented by player action */
 static unsigned char tick_advance;     /* how many ticks to advance this frame */
 static unsigned char death_timer;
@@ -432,6 +435,7 @@ static void drop_weapon(unsigned int x, unsigned int y, unsigned char wpn, unsig
 static unsigned char check_solid(unsigned int cx, unsigned int cy);
 static void do_title_screen(void);
 static void do_superhot_screen(void);
+static void do_end_screen(void);
 static void put_text(unsigned int adr, const char *str);
 
 /* ======================================================================
@@ -671,37 +675,45 @@ static void init_level(void) {
     }
 
     if (current_level == 0) {
-        /* LEVEL 0: DOJO — 2 screens wide
-         * House structure in center (cols 16-48)
-         * Player starts on raised platform in center, can drop through
-         * 4 enemies: 2 gunners + 2 katana rushers at front and rear
+        /* LEVEL 0: GARAGE — single screen parking garage
+         * Cars as platforms, shotgunners on top of cars
          */
-        level_width_px = 512;
+        level_width_px = 256;
         level_height_px = 240;
         scroll_dir = 0;
         set_mirroring(MIRROR_VERTICAL);
 
-        /* Player starts in center of house on the raised platform */
-        px = 224;
-        py = 20 * 8 - 16;
+        px = 24;
+        py = FLOOR_Y - 16;
         p_facing = 0;
-        p_weapon = WPN_KATANA;
 
-        /* House floor (pass-through, player starts here) — row 20, aligned to 4n
-         * Start at col 28 to avoid wall attr overlap (wall at col 24 is attr col 6) */
-        add_platform_pass(28, 20, 8);
+        /* Car 1 (left) — platform at row 21 */
+        add_platform(4, 21, 6);
 
-        /* E1: Gunner at front of house (right side, outside) */
-        add_enemy(0, ETYPE_GUNNER, 380, FLOOR_Y - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+        /* Car 2 (center) — platform at row 21 */
+        add_platform(14, 21, 6);
 
-        /* E2: Katana rusher at front (right side, ground) */
-        add_enemy(1, ETYPE_RUSHER, 340, FLOOR_Y - 16, OAM_FLIP_H, WPN_KATANA, 0);
+        /* Car 3 (right) — platform at row 21 */
+        add_platform(24, 21, 6);
 
-        /* E3: Gunner at rear of house (left side, outside) */
-        add_enemy(2, ETYPE_GUNNER, 100, FLOOR_Y - 16, 0, WPN_PISTOL, 3);
+        /* Upper walkway / pipe duct */
+        add_platform(8, 16, 8);
+        add_platform(20, 16, 8);
 
-        /* E4: Katana rusher at rear (left side, ground) */
-        add_enemy(3, ETYPE_RUSHER, 60, FLOOR_Y - 16, 0, WPN_KATANA, 0);
+        /* E1: Shotgunner on car 2 */
+        add_enemy(0, ETYPE_SHOTGUNNER, 128, 21*8 - 16, OAM_FLIP_H, WPN_SHOTGUN, 2);
+
+        /* E2: Shotgunner on car 3 */
+        add_enemy(1, ETYPE_SHOTGUNNER, 208, 21*8 - 16, OAM_FLIP_H, WPN_SHOTGUN, 2);
+
+        /* E3: Rusher on ground */
+        add_enemy(2, ETYPE_RUSHER, 176, FLOOR_Y - 16, OAM_FLIP_H, WPN_NONE, 0);
+
+        /* E4: Shotgunner on upper walkway */
+        add_enemy(3, ETYPE_SHOTGUNNER, 96, 16*8 - 16, OAM_FLIP_H, WPN_SHOTGUN, 2);
+
+        /* Pistol pickup on car 1 */
+        pick_type[0] = WPN_PISTOL; pick_x[0] = 48; pick_y[0] = 21*8 - 8; pick_ammo[0] = 3;
 
     } else if (current_level == 1) {
         /* LEVEL 1: CORRIDOR — 2 screens wide (64 cols = 512 px) */
@@ -744,8 +756,8 @@ static void init_level(void) {
         /* E6: Rusher on mid platform */
         add_enemy(5, ETYPE_RUSHER, 352, 16*8 - 16, OAM_FLIP_H, WPN_NONE, 0);
 
-    } else if (current_level == 2) {
-        /* LEVEL 2: ELEVATOR — 5-story vertical scrolling
+    } else if (current_level == 5) {
+        /* LEVEL 5: ELEVATOR — 5-story vertical scrolling
          * 256px wide × 480px tall (32 cols × 60 rows)
          * Left cols 0-4: elevator shaft (walls + open shaft)
          * Right cols 5-31: hallways per floor
@@ -802,8 +814,8 @@ static void init_level(void) {
         /* E1: Gunner, floor 1 right */
         add_enemy(0, ETYPE_GUNNER, 200, 52*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
-        /* E2: Rusher, floor 2 */
-        add_enemy(1, ETYPE_RUSHER, 160, 40*8 - 16, OAM_FLIP_H, WPN_NONE, 0);
+        /* E2: Katana rusher, floor 2 — jumps between platforms */
+        add_enemy(1, ETYPE_RUSHER, 160, 40*8 - 16, OAM_FLIP_H, WPN_KATANA, 0);
 
         /* E3: Gunner, floor 2 left */
         add_enemy(2, ETYPE_GUNNER, 56, 40*8 - 16, 0, WPN_PISTOL, 3);
@@ -811,13 +823,16 @@ static void init_level(void) {
         /* E4: Shotgunner, floor 3 */
         add_enemy(3, ETYPE_SHOTGUNNER, 180, 28*8 - 16, OAM_FLIP_H, WPN_SHOTGUN, 2);
 
-        /* E5: Thrower, floor 4 */
-        add_enemy(4, ETYPE_THROWER, 120, 16*8 - 16, 0, WPN_PISTOL, 1);
+        /* E5: Katana rusher, floor 3 left */
+        add_enemy(4, ETYPE_RUSHER, 60, 28*8 - 16, 0, WPN_KATANA, 0);
 
-        /* E6: Gunner, floor 5 (top) */
-        add_enemy(5, ETYPE_GUNNER, 200, 4*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+        /* E6: Thrower, floor 4 */
+        add_enemy(5, ETYPE_GUNNER, 120, 16*8 - 16, 0, WPN_PISTOL, 3);
 
-    } else {
+        /* E7: Katana rusher, floor 5 (top) */
+        add_enemy(6, ETYPE_RUSHER, 200, 4*8 - 16, OAM_FLIP_H, WPN_KATANA, 0);
+
+    } else if (current_level == 3) {
         /* LEVEL 3: BAR — 2 screens wide
          * Layout: outside → glass door → bar interior → back room door → back room
          * Cols 0:     left wall
@@ -841,52 +856,155 @@ static void init_level(void) {
         door_col = 39;
 
         /* --- Bar interior platforms --- */
-        /* Bar counter — long, runs through main bar area */
-        add_platform(14, 21, 16);
+        /* Bar counter — pass-through but visually solid */
+        add_platform_pass(14, 21, 16);
 
-        /* Elevated platform above counter left */
-        add_platform(12, 16, 8);
+        /* Elevated platforms — pass-through for gameplay */
+        add_platform_pass(12, 16, 8);
+        add_platform_pass(24, 16, 8);
 
-        /* Elevated platform above counter right */
-        add_platform(24, 16, 8);
+        /* Shelf for bottles — pass-through but visually solid */
+        add_platform_pass(16, 11, 10);
 
-        /* Shelf for bottles — above elevated platforms */
-        add_platform(16, 11, 10);
-
-        /* Back room platform */
-        add_platform(42, 16, 8);
-
-        /* Back room high platform */
-        add_platform(50, 11, 6);
+        /* Back room platforms — pass-through */
+        add_platform_pass(42, 16, 8);
+        add_platform_pass(50, 11, 6);
 
         /* --- Enemies --- */
-        /* E1: Rusher near entrance, first to greet player */
+        /* E1: Rusher near entrance */
         add_enemy(0, ETYPE_RUSHER, 120, FLOOR_Y - 16, OAM_FLIP_H, WPN_NONE, 0);
 
         /* E2: Gunner behind counter */
         add_enemy(1, ETYPE_GUNNER, 160, 21*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
-        /* E3: Shotgunner on elevated left platform */
+        /* E3: Shotgunner on elevated platform */
         add_enemy(2, ETYPE_SHOTGUNNER, 128, 16*8 - 16, OAM_FLIP_H, WPN_SHOTGUN, 2);
 
-        /* E4: Gunner on elevated right platform */
-        add_enemy(3, ETYPE_GUNNER, 224, 16*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+        /* E4: Gunner on ground, deeper in bar */
+        add_enemy(3, ETYPE_GUNNER, 224, FLOOR_Y - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
-        /* E5: Thrower behind counter, deeper in bar */
-        add_enemy(4, ETYPE_THROWER, 200, 21*8 - 16, 0, WPN_PISTOL, 1);
-
-        /* E6: Rusher behind counter (activates when E2 dies) */
-        add_enemy(5, ETYPE_RUSHER, 180, 21*8 - 16, 0, WPN_NONE, 0);
-        en_timer[5] = 200;
-
-        /* E7: Katana wielder in back room (passive until door opens) */
-        add_enemy(6, ETYPE_RUSHER, 368, 16*8 - 16, OAM_FLIP_H, WPN_KATANA, 0);
-        en_timer[6] = 200;
+        /* E5: Katana wielder in back room (passive until door opens) */
+        add_enemy(4, ETYPE_RUSHER, 368, 16*8 - 16, OAM_FLIP_H, WPN_KATANA, 0);
+        en_timer[4] = 200;
 
         /* Bottles as pickups on shelf */
         pick_type[0] = WPN_BOTTLE; pick_x[0] = 136; pick_y[0] = 11*8 - 8; pick_ammo[0] = 1;
         pick_type[1] = WPN_BOTTLE; pick_x[1] = 160; pick_y[1] = 11*8 - 8; pick_ammo[1] = 1;
         pick_type[2] = WPN_BOTTLE; pick_x[2] = 184; pick_y[2] = 11*8 - 8; pick_ammo[2] = 1;
+
+    } else if (current_level == 2) {
+        /* LEVEL 2: DOJO — 2 screens wide
+         * House structure in center
+         * 4 enemies: 2 gunners + 2 katana rushers
+         */
+        level_width_px = 512;
+        level_height_px = 240;
+        scroll_dir = 0;
+        set_mirroring(MIRROR_VERTICAL);
+
+        px = 224;
+        py = 20 * 8 - 16;
+        p_facing = 0;
+        p_weapon = WPN_KATANA;
+
+        add_platform_pass(28, 20, 8);
+
+        add_enemy(0, ETYPE_GUNNER, 380, FLOOR_Y - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+        add_enemy(1, ETYPE_RUSHER, 340, FLOOR_Y - 16, OAM_FLIP_H, WPN_KATANA, 0);
+        add_enemy(2, ETYPE_GUNNER, 100, FLOOR_Y - 16, 0, WPN_PISTOL, 3);
+        add_enemy(3, ETYPE_RUSHER, 60, FLOOR_Y - 16, 0, WPN_KATANA, 0);
+
+    } else if (current_level == 4) {
+        /* LEVEL 4: OFFICE — 2 screens wide
+         * Cubicle layout with bottle throwers, gunners, and a katana wielder
+         */
+        level_width_px = 512;
+        level_height_px = 240;
+        scroll_dir = 0;
+        set_mirroring(MIRROR_VERTICAL);
+
+        px = 24;
+        py = FLOOR_Y - 16;
+        p_facing = 0;
+
+        /* --- Screen 1: cubicle area --- */
+        /* Cubicle desks — low platforms */
+        add_platform(4, 21, 5);
+        add_platform(12, 21, 5);
+        add_platform(22, 21, 5);
+
+        /* Mid-height platforms */
+        add_platform(8, 16, 5);
+        add_platform(18, 16, 5);
+
+        /* Upper shelves */
+        add_platform(4, 11, 6);
+        add_platform(22, 11, 6);
+
+        /* --- Screen 2: open office + corner office --- */
+        /* Desks */
+        add_platform(36, 21, 6);
+        add_platform(46, 21, 6);
+
+        /* Conference table / elevated area */
+        add_platform(40, 16, 8);
+
+        /* Upper platform */
+        add_platform(34, 11, 8);
+        add_platform(50, 11, 6);
+
+        /* --- Enemies --- */
+        /* E1: Thrower in cubicle, screen 1 */
+        add_enemy(0, ETYPE_THROWER, 112, 21*8 - 16, OAM_FLIP_H, WPN_BOTTLE, 1);
+
+        /* E2: Thrower on mid platform, screen 1 */
+        add_enemy(1, ETYPE_THROWER, 80, 16*8 - 16, 0, WPN_BOTTLE, 1);
+
+        /* E3: Thrower in cubicle, screen 1 right */
+        add_enemy(2, ETYPE_THROWER, 192, 21*8 - 16, OAM_FLIP_H, WPN_BOTTLE, 1);
+
+        /* E4: Gunner on desk, screen 2 */
+        add_enemy(3, ETYPE_GUNNER, 304, 21*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+
+        /* E5: Gunner on conference table, screen 2 */
+        add_enemy(4, ETYPE_GUNNER, 352, 16*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+
+        /* E6: Rusher on ground, screen 1 */
+        add_enemy(5, ETYPE_RUSHER, 140, FLOOR_Y - 16, OAM_FLIP_H, WPN_NONE, 0);
+
+        /* E7: Katana wielder, screen 2 upper */
+        add_enemy(6, ETYPE_RUSHER, 416, 11*8 - 16, OAM_FLIP_H, WPN_KATANA, 0);
+
+        /* Bottles on upper shelves screen 1, pistol pickup screen 2 */
+        pick_type[0] = WPN_BOTTLE; pick_x[0] = 40;  pick_y[0] = 11*8 - 8; pick_ammo[0] = 1;
+        pick_type[1] = WPN_BOTTLE; pick_x[1] = 200; pick_y[1] = 11*8 - 8; pick_ammo[1] = 1;
+        pick_type[2] = WPN_PISTOL; pick_x[2] = 384; pick_y[2] = FLOOR_Y - 8; pick_ammo[2] = 3;
+
+    } else {
+        /* LEVEL 6: CEO — single screen
+         * One enemy who doesn't attack. Jump out the window to end it.
+         */
+        level_width_px = 256;
+        level_height_px = 240;
+        scroll_dir = 0;
+        set_mirroring(MIRROR_VERTICAL);
+
+        px = 24;
+        py = FLOOR_Y - 16;
+        p_facing = 0;
+
+        /* CEO's desk platform */
+        add_platform(12, 21, 8);
+
+        /* Upper shelf / bookcase */
+        add_platform(16, 16, 8);
+
+        /* E1: CEO — stands still, unarmed, doesn't attack */
+        add_enemy(0, ETYPE_RUSHER, 160, 21*8 - 16, OAM_FLIP_H, WPN_NONE, 0);
+        en_timer[0] = 200; /* passive — never attacks */
+
+        /* Pistol on the ground near entrance */
+        pick_type[0] = WPN_PISTOL; pick_x[0] = 56; pick_y[0] = FLOOR_Y - 8; pick_ammo[0] = 3;
     }
 }
 
@@ -924,7 +1042,7 @@ static void draw_bg_column(unsigned char world_col) {
 
     /* Wall on first and last column of level */
     last_col = (unsigned char)(level_width_px >> 3) - 1;
-    if (world_col == 0 || world_col == last_col) {
+    if (world_col == 0 || (world_col == last_col && current_level != 6)) {
         for (r = 0; r < level_rows; ++r) {
             vram_adr(tile_addr(world_col, r));
             vram_put(BG_WALL);
@@ -953,8 +1071,8 @@ static void draw_bg_column(unsigned char world_col) {
         }
     }
 
-    /* Dojo house structure (level 0): walls at cols 24,40; roof at row 12 */
-    if (current_level == 0) {
+    /* Dojo house structure (level 2): walls at cols 24,40; roof at row 12 */
+    if (current_level == 2) {
         /* Side walls — from roof down to ground */
         if (world_col == 24 || world_col == 40) {
             r = (unsigned char)(ground_y_col[world_col] >> 3);
@@ -975,15 +1093,73 @@ static void draw_bg_column(unsigned char world_col) {
         }
     }
 
-    /* Elevator shaft wall (col 3) for level 2 */
-    if (current_level == 2 && world_col == 3) {
+    /* Elevator shaft wall (col 3) for level 5 */
+    if (current_level == 5 && world_col == 3) {
         for (r = 0; r < level_rows; ++r) {
             vram_adr(tile_addr(world_col, r));
             vram_put(BG_WALL);
         }
     }
 
-    /* Level-specific decorations */
+    /* Garage decorations (level 0): car bodies below platforms, concrete pillars */
+    if (current_level == 0) {
+        /* Car bodies: dark fill below car-top platforms */
+        if ((world_col >= 4 && world_col < 10) ||
+            (world_col >= 14 && world_col < 20) ||
+            (world_col >= 24 && world_col < 30)) {
+            for (ty = 22; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_DARK);
+            }
+        }
+        /* Concrete pillars */
+        if (world_col == 11 || world_col == 21) {
+            for (ty = 9; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_COLUMN);
+            }
+        }
+        /* Ceiling */
+        if (world_col >= 1 && world_col < 31) {
+            vram_adr(tile_addr(world_col, 8));
+            vram_put(BG_FLOOR_TOP);
+        }
+    }
+
+    /* Office decorations (level 4): cubicle dividers + ceiling */
+    if (current_level == 4) {
+        /* Cubicle walls — vertical dividers */
+        if (world_col == 9 || world_col == 17 || world_col == 27 ||
+            world_col == 35 || world_col == 42 || world_col == 52) {
+            for (ty = 17; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_LGREY);
+            }
+        }
+        /* Ceiling across both screens */
+        if (world_col >= 1 && world_col < 63) {
+            vram_adr(tile_addr(world_col, 8));
+            vram_put(BG_FLOOR_TOP);
+        }
+    }
+
+    /* CEO office decorations (level 6): window on right wall */
+    if (current_level == 6) {
+        /* Window — light grey section on right wall */
+        if (world_col == 30) {
+            for (ty = 12; ty < 22; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_LGREY);
+            }
+        }
+        /* Ceiling */
+        if (world_col >= 1 && world_col < 31) {
+            vram_adr(tile_addr(world_col, 8));
+            vram_put(BG_FLOOR_TOP);
+        }
+    }
+
+    /* Bar decorations (level 3) */
     if (current_level == 3) {
         /* Glass entrance door — full-height glass panel */
         if (world_col == entrance_col && !entrance_open) {
@@ -1084,6 +1260,8 @@ static void draw_bg_level(void) {
         unsigned int attr_base;
         unsigned char val;
         if (!plat_pass[ci]) continue;
+        /* Bar level: skip brown palette for counter (row 21) and shelf (row 11) */
+        if (current_level == 3 && (plat_y[ci] == 21 || plat_y[ci] == 11)) continue;
 
         /* Attr columns that cover this platform's tile range */
         /* Skip attr cols that overlap walls: col 0 (tiles 0-3) and last col */
@@ -1130,11 +1308,19 @@ static void draw_hud(void) {
     }
 
     if (current_level == 0) {
-        put_text(NTADR_A(20, 1), "CORRIDOR");
+        put_text(NTADR_A(20, 1), "GARAGE");
     } else if (current_level == 1) {
-        put_text(NTADR_A(20, 1), "ELEVATOR");
+        put_text(NTADR_A(18, 1), "CORRIDOR");
+    } else if (current_level == 2) {
+        put_text(NTADR_A(24, 1), "DOJO");
+    } else if (current_level == 3) {
+        put_text(NTADR_A(25, 1), "BAR");
+    } else if (current_level == 4) {
+        put_text(NTADR_A(20, 1), "OFFICE");
+    } else if (current_level == 5) {
+        put_text(NTADR_A(18, 1), "ELEVATOR");
     } else {
-        put_text(NTADR_A(24, 1), "BAR");
+        put_text(NTADR_A(25, 1), "CEO");
     }
 }
 
@@ -1237,7 +1423,7 @@ static void update_player(void) {
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = p_weapon;
             spawn_ammo = p_ammo;
-            spawn_bullet(px + 4, py + 4, throw_vx, 0, 0);
+            spawn_bullet(px + 4, py + (p_crouch ? 10 : 4), throw_vx, 0, 0);
             p_weapon = WPN_NONE;
             p_ammo = 0;
         } else if (p_weapon != WPN_NONE && p_weapon != WPN_KATANA && p_ammo == 0) {
@@ -1245,14 +1431,14 @@ static void update_player(void) {
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = p_weapon;
             spawn_ammo = 0;
-            spawn_bullet(px + 4, py + 4, throw_vx, 0, 0);
+            spawn_bullet(px + 4, py + (p_crouch ? 10 : 4), throw_vx, 0, 0);
             p_weapon = WPN_NONE;
         } else if (p_weapon == WPN_BOTTLE) {
             /* AUTO-THROW bottle — bottles are always thrown on B press */
             throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
             spawn_wpn = WPN_BOTTLE;
             spawn_ammo = p_ammo;
-            spawn_bullet(px + 4, py + 4, throw_vx, 0, 0);
+            spawn_bullet(px + 4, py + (p_crouch ? 10 : 4), throw_vx, 0, 0);
             p_weapon = WPN_NONE;
             p_ammo = 0;
         } else if (p_weapon == WPN_PISTOL && p_ammo > 0) {
@@ -1335,7 +1521,7 @@ static void update_player(void) {
             }
         }
     } else if (pvx > 0) {
-        if (px < level_width_px - 20) { /* right wall */
+        if (px < level_width_px - 20 || current_level == 6) { /* right wall (CEO can exit) */
             px += pvx;
             if (check_solid(px + 12, py + 8)) {
                 wx = (px + 12) >> 3;
@@ -1483,6 +1669,7 @@ static void update_player(void) {
    ====================================================================== */
 static void update_enemies(void) {
     unsigned int dist;
+    unsigned int ydist; /* 16-bit vertical distance (ty is 8-bit, wraps on elevator) */
     signed char dir;
 
     if (tick_advance == 0) return; /* time is frozen */
@@ -1493,13 +1680,9 @@ static void update_enemies(void) {
         en_timer[2] = 0;
         en_facing[2] = OAM_FLIP_H;
     }
-    if (current_level == 3 && en_type[1] == ETYPE_NONE && en_timer[5] >= 200) {
-        /* E6 becomes aggressive when E2 (gunner behind counter) dies */
-        en_timer[5] = 0;
-    }
-    if (current_level == 3 && door_open_flag && en_timer[6] >= 200) {
-        /* E7 becomes aggressive when door opens */
-        en_timer[6] = 0;
+    if (current_level == 3 && door_open_flag && en_timer[4] >= 200) {
+        /* E5 (katana boss) becomes aggressive when door opens */
+        en_timer[4] = 0;
     }
 
     for (i = 0; i < MAX_ENEMIES; ++i) {
@@ -1525,8 +1708,9 @@ static void update_enemies(void) {
         /* Distance to player (approximate) */
         dist = (en_x[i] > px) ? en_x[i] - px : px - en_x[i];
 
-        /* Vertical distance — used to check if enemy can hit player */
-        ty = (en_y[i] > py) ? en_y[i] - py : py - en_y[i];
+        /* Vertical distance — 16-bit to avoid wrapping on tall levels */
+        ydist = (en_y[i] > py) ? en_y[i] - py : py - en_y[i];
+        ty = (ydist > 255) ? 255 : (unsigned char)ydist;
 
         /* Track line-of-sight: enemy can see player if in range and similar Y */
         if (ty < 20 && dist < 200) {
@@ -1575,10 +1759,24 @@ static void update_enemies(void) {
             case ETYPE_RUSHER:
                 /* Walk toward player — only if within ~1.5 screens */
                 if (dist > 12 && dist < 400) {
-                    if (dir < 0 && en_x[i] >= (unsigned int)(ENEMY_SPEED * tick_advance)) {
-                        en_x[i] -= ENEMY_SPEED * tick_advance;
-                    } else if (dir > 0) {
-                        en_x[i] += ENEMY_SPEED * tick_advance;
+                    /* Elevator level: katana rushers don't walk off edges
+                       unless player is on same floor (rush the elevator) */
+                    tmp = 1; /* allow move */
+                    if (current_level == 5 && en_weapon[i] == WPN_KATANA && en_on_ground[i]) {
+                        if (dir < 0) {
+                            if (!check_solid(en_x[i] - 2, en_y[i] + 17))
+                                tmp = (ydist < 20) ? 1 : 0;
+                        } else {
+                            if (!check_solid(en_x[i] + 14, en_y[i] + 17))
+                                tmp = (ydist < 20) ? 1 : 0;
+                        }
+                    }
+                    if (tmp) {
+                        if (dir < 0 && en_x[i] >= (unsigned int)(ENEMY_SPEED * tick_advance)) {
+                            en_x[i] -= ENEMY_SPEED * tick_advance;
+                        } else if (dir > 0) {
+                            en_x[i] += ENEMY_SPEED * tick_advance;
+                        }
                     }
                 }
                 /* Katana rushers jump toward platforms above them */
@@ -1626,8 +1824,8 @@ static void update_enemies(void) {
                 } else {
                     en_on_ground[i] = 0;
                 }
-                /* Katana melee: kill player if in range (matched to thrust graphic) */
-                if (en_weapon[i] == WPN_KATANA && dist < 18 && ty < 16 && p_alive) {
+                /* Katana melee: kill player if in range and on same level */
+                if (en_weapon[i] == WPN_KATANA && dist < 18 && ty < 10 && p_alive) {
                     kill_player();
                 }
                 break;
@@ -1728,13 +1926,13 @@ static void update_enemies(void) {
             }
         }
 
-        /* Back room door: opens when bar enemies (E1-E5, idx 0-4) are mostly dead */
+        /* Back room door: opens when 3 of 4 bar enemies (idx 0-3) are dead */
         if (!door_open_flag) {
             ci = 0;
-            for (si = 0; si < 5; ++si) {
+            for (si = 0; si < 4; ++si) {
                 if (en_type[si] == ETYPE_NONE || en_state[si] == 3) ++ci;
             }
-            if (ci >= 4) {
+            if (ci >= 3) {
                 door_open_flag = 1;
                 /* Clear wall tiles and place open door */
                 for (ci = 9; ci < 26; ++ci) {
@@ -1998,10 +2196,15 @@ static void draw_sprites(void) {
 
         /* Enemy weapon — lower when crouched */
         ty = (en_crouch[i] >= 15) ? scy + 10 : (en_crouch[i] >= 5) ? scy + 7 : scy + 4;
-        if (en_weapon[i] == WPN_PISTOL || en_weapon[i] == WPN_BOTTLE) {
+        if (en_weapon[i] == WPN_PISTOL) {
             spr_id = oam_spr(
                 (en_facing[i] == OAM_FLIP_H) ? scx + 1 : scx + 8,
                 ty, SPR_PISTOL,
+                (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
+        } else if (en_weapon[i] == WPN_BOTTLE) {
+            spr_id = oam_spr(
+                (en_facing[i] == OAM_FLIP_H) ? scx + 1 : scx + 8,
+                ty, SPR_BOTTLE,
                 (en_facing[i] == OAM_FLIP_H) ? attr | OAM_FLIP_H : attr, spr_id);
         } else if (en_weapon[i] == WPN_SHOTGUN) {
             spr_id = oam_spr(
@@ -2113,21 +2316,32 @@ static void draw_sprites(void) {
 
         /* Level label — on row 2 to avoid 8-sprite scanline limit */
         if (current_level == 0) {
-            spr_id = oam_spr(232, 16, SPR_DOJO,     PAL_PLAYER, spr_id);
-            spr_id = oam_spr(240, 16, SPR_DOJO + 1, PAL_PLAYER, spr_id);
+            spr_id = oam_spr(216, 16, SPR_GARAGE,     PAL_PLAYER, spr_id);
+            spr_id = oam_spr(224, 16, SPR_GARAGE + 1, PAL_PLAYER, spr_id);
+            spr_id = oam_spr(232, 16, SPR_GARAGE + 2, PAL_PLAYER, spr_id);
         } else if (current_level == 1) {
             spr_id = oam_spr(216, 16, SPR_CORRIDOR,     PAL_PLAYER, spr_id);
             spr_id = oam_spr(224, 16, SPR_CORRIDOR + 1, PAL_PLAYER, spr_id);
             spr_id = oam_spr(232, 16, SPR_CORRIDOR + 2, PAL_PLAYER, spr_id);
             spr_id = oam_spr(240, 16, SPR_CORRIDOR + 3, PAL_PLAYER, spr_id);
         } else if (current_level == 2) {
+            spr_id = oam_spr(232, 16, SPR_DOJO,     PAL_PLAYER, spr_id);
+            spr_id = oam_spr(240, 16, SPR_DOJO + 1, PAL_PLAYER, spr_id);
+        } else if (current_level == 3) {
+            spr_id = oam_spr(232, 16, SPR_BAR,     PAL_PLAYER, spr_id);
+            spr_id = oam_spr(240, 16, SPR_BAR + 1, PAL_PLAYER, spr_id);
+        } else if (current_level == 4) {
+            spr_id = oam_spr(216, 16, SPR_OFFICE,     PAL_PLAYER, spr_id);
+            spr_id = oam_spr(224, 16, SPR_OFFICE + 1, PAL_PLAYER, spr_id);
+            spr_id = oam_spr(232, 16, SPR_OFFICE + 2, PAL_PLAYER, spr_id);
+        } else if (current_level == 5) {
             spr_id = oam_spr(216, 16, SPR_ELEVATOR,     PAL_PLAYER, spr_id);
             spr_id = oam_spr(224, 16, SPR_ELEVATOR + 1, PAL_PLAYER, spr_id);
             spr_id = oam_spr(232, 16, SPR_ELEVATOR + 2, PAL_PLAYER, spr_id);
             spr_id = oam_spr(240, 16, SPR_ELEVATOR + 3, PAL_PLAYER, spr_id);
         } else {
-            spr_id = oam_spr(232, 16, SPR_BAR,     PAL_PLAYER, spr_id);
-            spr_id = oam_spr(240, 16, SPR_BAR + 1, PAL_PLAYER, spr_id);
+            spr_id = oam_spr(232, 16, SPR_CEO,     PAL_PLAYER, spr_id);
+            spr_id = oam_spr(240, 16, SPR_CEO + 1, PAL_PLAYER, spr_id);
         }
     }
 
@@ -2336,6 +2550,36 @@ static void do_superhot_screen(void) {
     stop_dpcm();
 }
 
+static void do_end_screen(void) {
+    scroll(0, 0);
+    oam_clear();
+    ppu_off();
+
+    pal_bg(pal_bg_title);
+
+    /* Clear nametable */
+    vram_adr(NTADR_A(0, 0));
+    vram_fill(BG_EMPTY, 960);
+    vram_adr(0x23C0);
+    vram_fill(0x00, 64);
+
+    put_text(NTADR_A(12, 13), "THE END");
+    put_text(NTADR_A(7, 22), "PRESS START");
+
+    ppu_on_all();
+
+    /* Play DPCM voice */
+    play_dpcm_superhot();
+
+    while (1) {
+        ppu_wait_nmi();
+        pad = pad_trigger(0);
+        if (pad & (PAD_START | PAD_A | PAD_B)) break;
+    }
+
+    stop_dpcm();
+}
+
 /* ======================================================================
    MAIN
    ====================================================================== */
@@ -2373,8 +2617,20 @@ next_level:
                 check_pickups();
                 draw_sprites();
 
-                /* Check level complete */
-                if (enemies_alive == 0) {
+                /* CEO level: jump through window on right wall to win */
+                if (current_level == 6 && px >= 236) {
+                    for (tmp = 0; tmp < 30; ++tmp) {
+                        ppu_wait_nmi();
+                    }
+                    set_vram_update(0);
+                    music_stop();
+                    do_superhot_screen();
+                    do_end_screen();
+                    goto restart;
+                }
+
+                /* Check level complete (CEO level: only window exit counts) */
+                if (enemies_alive == 0 && current_level != 6) {
                     /* Brief pause before victory */
                     for (tmp = 0; tmp < 30; ++tmp) {
                         ppu_wait_nmi();
@@ -2383,7 +2639,7 @@ next_level:
                     music_stop();
                     do_superhot_screen();
 
-                    if (current_level < 3) {
+                    if (current_level < 6) {
                         ++current_level;
                         goto next_level;
                     } else {

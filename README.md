@@ -14,7 +14,7 @@ You are a white silhouette in a black-and-white world. Red crystalline enemies w
 
 **The twist:** time only advances when you act. Stand still and the world freezes. Bullets hang in the air. Plan your move, then execute.
 
-Four levels. No checkpoints. **SUPER. HOT.**
+Seven levels. No checkpoints. **SUPER. HOT.**
 
 ### Controls
 
@@ -31,14 +31,17 @@ Four levels. No checkpoints. **SUPER. HOT.**
 | B (empty gun) | Auto-throw empty weapon |
 | Start | Start game |
 
-Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 slugs — can't crouch under, must jump!), katana (always slash, cannot throw), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+jump. Enemies crouch and return fire when you crouch near them.
+Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 slugs — can't crouch under, must jump!), katana (always slash, cannot throw), bottles (auto-throw on B press). Empty guns can still be thrown as projectiles. Crouching throws items low to hit crouching enemies. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+jump. Katana wielders dodge bullets by crouching — use shotgun slugs or thrown items to counter them.
 
 ### Levels
 
-1. **DOJO** — 4 enemies in a house structure. 2 gunners and 2 katana rushers who jump to platforms.
+1. **GARAGE** — Parking garage. Cars as cover, shotgunners everywhere.
 2. **CORRIDOR** — 6 enemies across 2 scrolling screens. Learn the time mechanic the hard way.
-3. **ELEVATOR** — 6 enemies across 5 stories with smooth vertical scrolling. Ride the elevator or take the stairs. Brown floors can be jumped through.
-4. **BAR** — 7 enemies. Tight spaces, every weapon type, and a locked back room with a katana-wielding boss.
+3. **DOJO** — House structure with katana rushers and gunners. Start with a katana.
+4. **BAR** — 2-screen bar. Glass entrance door, counter, shelves, locked back room with katana boss.
+5. **OFFICE** — 2-screen office with cubicles. Bottle throwers, gunners, and a katana wielder.
+6. **ELEVATOR** — 7 enemies across 5 stories with vertical scrolling. Katana rushers will chase you into the elevator shaft.
+7. **CEO** — Corner office. One unarmed enemy. Jump out the window to end it all.
 
 ## Building
 
