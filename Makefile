@@ -2,7 +2,7 @@
 # Requires: cc65 toolchain (cc65, ca65, ld65)
 
 # Output ROM
-TARGET = game.nes
+TARGET = superhotdemake.nes
 
 # Directories
 SRC_DIR = src

@@ -3,7 +3,7 @@
 set -e
 
 CC65_HOME="/c/ProgramData/chocolatey/lib/cc65-compiler/tools"
-TARGET="game.nes"
+TARGET="superhotdemake.nes"
 
 mkdir -p obj
 

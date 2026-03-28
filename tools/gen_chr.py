@@ -410,6 +410,18 @@ bullet_tile = [
     [0,0,0,0,0,0,0,0],
 ]
 
+# Shotgun slug (big pellet, used twice vertically for tall hitbox)
+slug_tile = [
+    [0,0,0,0,0,0,0,0],
+    [0,0,1,1,1,1,0,0],
+    [0,1,3,3,3,3,1,0],
+    [0,1,3,3,3,3,1,0],
+    [0,1,3,3,3,3,1,0],
+    [0,1,3,3,3,3,1,0],
+    [0,0,1,1,1,1,0,0],
+    [0,0,0,0,0,0,0,0],
+]
+
 # Pistol pickup
 pistol_tile = [
     [0,0,0,0,0,0,0,0],
@@ -1542,6 +1554,9 @@ def main():
     # $34-$35: half-crouch transition
     spr_tiles.append(make_tile(char_halfcr_l))
     spr_tiles.append(make_tile(char_halfcr_r))
+
+    # $36: shotgun slug
+    spr_tiles.append(make_tile(slug_tile))
 
     # Fill remaining sprite tiles with empty
     while len(spr_tiles) < 256:

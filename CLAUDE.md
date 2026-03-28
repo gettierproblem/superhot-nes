@@ -12,7 +12,7 @@ bash build.sh        # Unix/Git Bash
 build.bat            # Windows CMD
 ```
 
-The build compiles `src/main.c` → assembles with `lib/crt0.s` → links with neslib → outputs `game.nes` (40KB: 16B header + 32KB PRG + 8KB CHR).
+The build compiles `src/main.c` → assembles with `lib/crt0.s` → links with neslib → outputs `superhotdemake.nes` (40KB: 16B header + 32KB PRG + 8KB CHR).
 
 To regenerate tile graphics: `python tools/gen_chr.py`
 
@@ -39,14 +39,15 @@ To regenerate tile graphics: `python tools/gen_chr.py`
 ### Core Systems
 
 - **Tick system**: `game_tick` increments only on player input. Enemy AI, bullet movement, and animations only advance when `tick_advance > 0`. Player always responds to input at 60fps.
-- **Collision**: AABB hitboxes. `check_solid()` checks against ground columns (`ground_y_col[]`) and platform list (`plat_x/y/w[]`). Player hitbox shrinks when crouching.
+- **Collision**: AABB hitboxes. `check_solid()` checks against ground columns (`ground_y_col[]`) and platform list (`plat_x/y/w[]`). Player hitbox shrinks when crouching. Offscreen sprites (negative screen coords) are clipped to avoid unsigned char wrapping artifacts and wasted OAM slots.
+- **Crouch animation**: Player and enemies have a 3-stage crouch: stand → half-crouch (`SPR_HALFCR_L/R` at scy+4) → full kneel (`SPR_CROUCH_L/R` at scy+8). Player uses `p_crouch_timer` (0–4); enemies use `en_crouch[i]` (0=stand, 5–14=half-crouch, 15+=full). Weapon positions adjust per stage.
 - **Physics**: `pvy` is direct pixel velocity (not fixed-point). Gravity accumulates fractionally via `pvy_frac` (adds `GRAVITY_RATE` per tick, +1 to pvy per 16 accumulated).
 - **Enemies**: Struct-of-arrays pattern (`en_x[]`, `en_y[]`, `en_type[]`, etc). Types: RUSHER, GUNNER, SHOTGUNNER, THROWER, KATANA_RUSHER. Passive enemies use `en_timer >= 200` to suppress AI until trigger conditions fire. Enemies must have line-of-sight (`en_sight[]` >= `SIGHT_TICKS`) before firing — resets if player leaves their Y range. Rushers only chase within ~400px. Katana rushers jump to platforms to reach the player and perform melee slashes when close.
 - **Scrolling**: MMC1 mapper with switchable mirroring via `set_mirroring()`. Horizontal scrolling uses vertical mirroring (`MIRROR_VERTICAL`); vertical scrolling uses horizontal mirroring (`MIRROR_HORIZONTAL`). Camera (`camera_x`, `camera_y`) follows the player, clamped to level bounds. `scroll(camera_x, camera_y)` called each frame. Both nametables are populated for the scroll direction. Single-screen levels set `level_width_px = 256` and camera stays at 0. Sprite screen-x = `world_x - camera_x`; sprite screen-y = `world_y - camera_y`; sprites outside visible range are clipped.
 - **Pass-through platforms**: Brown dashed platforms (`BG_FLOOR_PASS`) that the player can jump up through from below. Crouch + A drops the player through. Collision uses `plat_pass[]` flag per platform.
 - **Vertical scrolling**: Elevator level uses `camera_y` for vertical scrolling with horizontal mirroring. Level height spans 5 stories. The elevator platform moves vertically and the camera follows.
 - **HUD**: Drawn as sprites (not background tiles) so it doesn't scroll with the camera. Weapon icon sprite + ammo shown as bullet dot sprites + level name label (DOJO/CORRIDOR/ELEVATOR/BAR) as packed mini-font sprite tiles. NES 8-sprite-per-scanline limit means HUD elements are spread across two scanline rows.
-- **Weapons**: Guns retain when empty (ammo=0) so player can throw them. B button auto-throws empty weapons. Thrown weapons with ammo become ground pickups on wall hit; empty ones vanish. Enemies throw their empty guns when out of ammo, then become rushers. Crouch (down press) to pick up/swap weapons — only triggers on first frame of press, not while held. Katanas cannot be thrown — B always performs a slash with a dedicated horizontal thrust sprite (`SPR_KATANA_H`). Weapon sprites are positioned close to character hands.
+- **Weapons**: Guns retain when empty (ammo=0) so player can throw them. B button auto-throws empty weapons. Thrown weapons with ammo become ground pickups on wall hit; empty ones vanish. Enemies throw their empty guns when out of ammo, then become rushers. Crouch (down press) to pick up/swap weapons — only triggers on first frame of press, not while held. Katanas cannot be thrown — B always performs a slash with a dedicated horizontal thrust sprite (`SPR_KATANA_H`). Weapon sprites are positioned close to character hands. Shotgun fires a single tall slug (`bul_tall` flag, `SPR_SLUG` sprite rendered as two stacked tiles) with a 16px hitbox that can't be crouched under — forces a jump to dodge.
 - **Levels**: 4 levels defined procedurally in `init_level()`. Ground height per-column (`ground_y_col[LEVEL_COLS]`, LEVEL_COLS=64) + platform list. `level_width_px` sets the width per level (256 for single-screen, 512 for two-screen). Platforms spaced 5 tile rows apart for jumpability with clearance for bullets underneath.
   - **Level 0 — DOJO**: Single-screen house structure. 2 gunners + 2 katana rushers. Indoor dojo environment.
   - **Level 1 — CORRIDOR**: 2-screen scrolling hallway. 6 enemies, learn the time mechanic.
@@ -56,7 +57,7 @@ To regenerate tile graphics: `python tools/gen_chr.py`
 
 ### CHR Tile Map
 
-Sprite pattern table 0: character metasprites (stand/walk/jump/crouch/punch/kick/slash), bullet, weapons (pistol/shotgun/katana/katana-horizontal-thrust/bottle), shatter particles, thrown weapon spin, level label tiles (DOJO/CORRIDOR/ELEVATOR/BAR as packed mini-font), A-Z sprite font, 0-9 sprite digits.
+Sprite pattern table 0: character metasprites (stand/walk/jump/half-crouch/crouch/punch/kick/slash), bullet, shotgun slug, weapons (pistol/shotgun/katana/katana-horizontal-thrust/bottle), shatter particles, thrown weapon spin, level label tiles (DOJO/CORRIDOR/ELEVATOR/BAR as packed mini-font), A-Z sprite font, 0-9 sprite digits.
 BG pattern table 1: wall/floor/platform tiles, door, bar counter, shelf, column, A-Z font, big SUPERHOT block letters, HUD weapon icons.
 
 Sprites are shared between player (palette 0: white) and enemies (palette 1: red) — same tiles, different palette.
@@ -75,7 +76,7 @@ Alternates between "SUPER" and "HOT" in big block letters every 0.5 seconds (sam
 
 ## Testing
 
-Open `game.nes` in Mesen2 (`tools/mesen/Mesen.exe`). Use Mesen's debugger (Debug > Debugger) for breakpoints and memory inspection. PPU Viewer shows tile/palette state.
+Open `superhotdemake.nes` in Mesen2 (`tools/mesen/Mesen.exe`). Use Mesen's debugger (Debug > Debugger) for breakpoints and memory inspection. PPU Viewer shows tile/palette state.
 
 ## Design Doc
 

@@ -2,7 +2,8 @@
 *.obj
 *.exe
 obj/
-game.nes
+*.nes
+!docs/*.nes
 _deps/
 tools/mesen/
 .DS_Store

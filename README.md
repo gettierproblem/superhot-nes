@@ -31,7 +31,7 @@ Four levels. No checkpoints. **SUPER. HOT.**
 | B (empty gun) | Auto-throw empty weapon |
 | Start | Start game |
 
-Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 spread shots), katana (always slash, cannot throw), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+jump. Enemies crouch and return fire when you crouch near them.
+Crouch over dropped weapons to pick them up or swap. Weapons: pistol (3 shots), shotgun (2 slugs — can't crouch under, must jump!), katana (always slash, cannot throw), bottles (throwable). Empty guns can still be thrown as projectiles. Jump kick enemies from above! Brown platforms can be jumped through from below and dropped through with crouch+jump. Enemies crouch and return fire when you crouch near them.
 
 ### Levels
 
@@ -58,11 +58,11 @@ bash build.sh       # Git Bash / Linux / macOS
 build.bat           # Windows CMD
 ```
 
-Outputs `game.nes` — a 40KB MMC1 ROM (Mapper 1, 32KB PRG + 8KB CHR).
+Outputs `superhotdemake.nes` — a 40KB MMC1 ROM (Mapper 1, 32KB PRG + 8KB CHR).
 
 ### Run
 
-Open `game.nes` in any NES emulator. [Mesen](https://www.mesen.ca/) recommended for its debugging tools.
+Open `superhotdemake.nes` in any NES emulator. [Mesen](https://www.mesen.ca/) recommended for its debugging tools.
 
 ## Project Structure
 

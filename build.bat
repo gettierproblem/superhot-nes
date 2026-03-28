@@ -3,7 +3,7 @@ REM NES Platformer Build Script
 REM Requires cc65 toolchain in PATH
 
 set CC65_HOME=C:\ProgramData\chocolatey\lib\cc65-compiler\tools
-set TARGET=game.nes
+set TARGET=superhotdemake.nes
 
 if not exist obj mkdir obj
 

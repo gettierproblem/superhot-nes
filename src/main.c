@@ -89,6 +89,7 @@ void __fastcall__ music_pause(unsigned char pause);
 #define SPR_KATANA_H  0x33  /* katana horizontal (thrust) */
 #define SPR_HALFCR_L  0x34  /* half-crouch transition (L) */
 #define SPR_HALFCR_R  0x35  /* half-crouch transition (R) */
+#define SPR_SLUG      0x36  /* shotgun slug (big pellet) */
 
 /* --- BG tile indices (pattern table 1) --- */
 #define BG_EMPTY      0x00
@@ -249,6 +250,7 @@ static signed char   bul_vy[MAX_BULLETS];
 static unsigned char bul_owner[MAX_BULLETS];   /* 0=player, 1=enemy */
 static unsigned char bul_wpn[MAX_BULLETS];    /* WPN_NONE=regular bullet, else thrown weapon type */
 static unsigned char bul_ammo[MAX_BULLETS];   /* ammo remaining for thrown weapons */
+static unsigned char bul_tall[MAX_BULLETS];  /* 1=shotgun slug (tall hitbox) */
 
 /* weapon pickups on the ground */
 static unsigned char pick_type[MAX_PICKUPS];
@@ -280,6 +282,7 @@ static unsigned char ci;  /* check_solid loop var */
 static unsigned char si;  /* spawn_bullet loop var */
 static unsigned char spawn_wpn;  /* weapon type for next spawn_bullet call */
 static unsigned char spawn_ammo; /* ammo for next spawn_bullet thrown weapon */
+static unsigned char spawn_tall; /* 1=shotgun slug with tall hitbox */
 static unsigned char di;  /* drop_weapon loop var */
 static unsigned char pj;  /* spawn_particle loop var */
 
@@ -490,14 +493,17 @@ static void spawn_bullet(unsigned int x, unsigned int y,
             bul_owner[si] = owner;
             bul_wpn[si] = spawn_wpn;
             bul_ammo[si] = spawn_ammo;
+            bul_tall[si] = spawn_tall;
             spawn_wpn = WPN_NONE;
             spawn_ammo = 0;
+            spawn_tall = 0;
             return;
         }
     }
     /* No free slot — reset globals anyway */
     spawn_wpn = WPN_NONE;
     spawn_ammo = 0;
+    spawn_tall = 0;
 }
 
 static void spawn_particle(unsigned int x, unsigned int y) {
@@ -1171,13 +1177,12 @@ static void update_player(void) {
             );
             --p_ammo;
         } else if (p_weapon == WPN_SHOTGUN && p_ammo > 0) {
-            /* SHOOT shotgun - 3 bullet spread — lower when crouched */
+            /* SHOOT shotgun — single slug with tall hitbox */
             sfx_play(SFX_GUNSHOT, SFX_CH0);
             wx = (p_facing == OAM_FLIP_H) ? px - 4 : px + 12;
-            wy = py + (p_crouch ? 8 : 2);
-            spawn_bullet(wx, wy,     (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED, -1, 0);
-            spawn_bullet(wx, wy + 2, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  0, 0);
-            spawn_bullet(wx, wy + 4, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED,  1, 0);
+            wy = py + (p_crouch ? 6 : 0);
+            spawn_tall = 1;
+            spawn_bullet(wx, wy, (p_facing == OAM_FLIP_H) ? -SHOTGUN_SPEED : SHOTGUN_SPEED, 0, 0);
             --p_ammo;
         } else if (!p_on_ground) {
             /* JUMP KICK - airborne melee, extends forward and below */
@@ -1350,22 +1355,16 @@ static void update_player(void) {
     for (i = 0; i < MAX_BULLETS; ++i) {
         if (!bul_active[i]) continue;
         if (bul_owner[i] == 0) continue; /* player's own bullets */
-        /* AABB: bullet 2x2 vs player hitbox */
-        /* Crouching shrinks player hitbox to bottom 8px only */
-        if (p_crouch) {
-            if (bul_x[i] + 2 > px && bul_x[i] < px + 12 &&
-                bul_y[i] + 2 > py + 8 && bul_y[i] < py + 16) {
-                bul_active[i] = 0;
-                kill_player();
-                return;
-            }
-        } else {
-            if (bul_x[i] + 2 > px && bul_x[i] < px + 12 &&
-                bul_y[i] + 2 > py + 2 && bul_y[i] < py + 16) {
-                bul_active[i] = 0;
-                kill_player();
-                return;
-            }
+        /* AABB: bullet vs player hitbox */
+        /* Tall slugs: 2x16 hitbox (covers standing + crouching) */
+        /* Regular bullets: 2x2, crouching shrinks player hitbox to bottom 8px */
+        tmp = bul_tall[i] ? 16 : 2; /* bullet height */
+        if (bul_x[i] + 2 > px && bul_x[i] < px + 12 &&
+            bul_y[i] + tmp > (p_crouch && !bul_tall[i] ? py + 8 : py + 2) &&
+            bul_y[i] < py + 16) {
+            bul_active[i] = 0;
+            kill_player();
+            return;
         }
     }
 
@@ -1550,14 +1549,13 @@ static void update_enemies(void) {
             case ETYPE_SHOTGUNNER:
                 if (en_timer[i] >= 60 && dist < 180 && ty < 20 && en_sight[i] >= SIGHT_TICKS) {
                     if (en_ammo[i] > 0) {
-                        /* Fire spread — lower if crouched */
+                        /* Fire slug — tall hitbox, can't be crouched under */
                         sfx_play(SFX_GUNSHOT, SFX_CH0);
                         en_timer[i] = 0;
                         wx = (dir < 0) ? en_x[i] - 4 : en_x[i] + 12;
-                        wy = en_y[i] + ((en_crouch[i] >= 15) ? 8 : (en_crouch[i] >= 5) ? 5 : 2);
-                        spawn_bullet(wx, wy,     dir * SHOTGUN_SPEED, -1, 1);
-                        spawn_bullet(wx, wy + 2, dir * SHOTGUN_SPEED,  0, 1);
-                        spawn_bullet(wx, wy + 4, dir * SHOTGUN_SPEED,  1, 1);
+                        wy = en_y[i] + ((en_crouch[i] >= 15) ? 4 : 0);
+                        spawn_tall = 1;
+                        spawn_bullet(wx, wy, dir * SHOTGUN_SPEED, 0, 1);
                         --en_ammo[i];
                     } else {
                         /* Out of ammo — throw empty weapon after delay */
@@ -1653,8 +1651,9 @@ static void update_bullets(void) {
         if (bul_owner[i] == 0) {
             for (j = 0; j < MAX_ENEMIES; ++j) {
                 if (en_type[j] == ETYPE_NONE || en_state[j] == 3) continue;
+                tmp = bul_tall[i] ? 16 : 4;
                 if (bul_x[i] + 4 > en_x[j] && bul_x[i] < en_x[j] + 12 &&
-                    bul_y[i] + 4 > en_y[j] + 2 && bul_y[i] < en_y[j] + 16) {
+                    bul_y[i] + tmp > en_y[j] + 2 && bul_y[i] < en_y[j] + 16) {
                     bul_active[i] = 0;
                     kill_enemy(j);
                     break;
@@ -1883,7 +1882,13 @@ static void draw_sprites(void) {
         scx = (unsigned char)sx;
         scy = (unsigned char)sy;
         attr = (bul_owner[i] == 0) ? PAL_PLAYER : 0x03;
-        if (bul_wpn[i] != WPN_NONE) {
+        if (bul_tall[i]) {
+            /* Shotgun slug — two stacked sprites for visible tall hitbox */
+            spr_id = oam_spr(scx, scy,     SPR_SLUG,
+                             (bul_vx[i] < 0) ? attr | OAM_FLIP_H : attr, spr_id);
+            spr_id = oam_spr(scx, scy + 8, SPR_SLUG,
+                             (bul_vx[i] < 0) ? attr | OAM_FLIP_H : attr, spr_id);
+        } else if (bul_wpn[i] != WPN_NONE) {
             switch (bul_wpn[i]) {
                 case WPN_PISTOL:  tmp = SPR_PISTOL;    break;
                 case WPN_SHOTGUN: tmp = SPR_SHOTGUN_L;  break;
