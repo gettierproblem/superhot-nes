@@ -194,7 +194,11 @@ static unsigned char tick_advance;     /* how many ticks to advance this frame *
 static unsigned char death_timer;
 static unsigned char shimmer_timer;    /* for time-freeze palette effect */
 static unsigned char enemies_alive;
-static unsigned char door_open_flag;   /* for level 3 */
+static unsigned char door_open_flag;   /* for level 3 back room door */
+static unsigned char entrance_open;   /* for level 3 glass entrance door */
+static unsigned char door_col;        /* column of back room door */
+static unsigned char entrance_col;    /* column of glass entrance door */
+static unsigned char vram_buf[64];    /* VRAM update buffer for live tile changes */
 static unsigned int  camera_x;        /* scroll position in pixels */
 static unsigned int  camera_y;        /* vertical scroll position */
 static unsigned int  level_width_px;  /* width of current level in pixels */
@@ -592,6 +596,11 @@ static void clear_entities(void) {
     num_plats = 0;
     enemies_alive = 0;
     door_open_flag = 0;
+    entrance_open = 0;
+    door_col = 0;
+    entrance_col = 0;
+    vram_buf[0] = 0xFF; /* NT_UPD_EOF */
+    set_vram_update(vram_buf);
 }
 
 static void add_platform(unsigned char xt, unsigned char yt, unsigned char w) {
@@ -809,58 +818,75 @@ static void init_level(void) {
         add_enemy(5, ETYPE_GUNNER, 200, 4*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
     } else {
-        /* LEVEL 3: BAR — single screen */
-        level_width_px = 256;
+        /* LEVEL 3: BAR — 2 screens wide
+         * Layout: outside → glass door → bar interior → back room door → back room
+         * Cols 0:     left wall
+         * Cols 1-7:   outside / street
+         * Col 8:      glass entrance door (opens on approach)
+         * Cols 9-38:  bar interior (counter, shelves, platforms)
+         * Col 39:     back room door (opens when bar enemies dead)
+         * Cols 40-62: back room with katana boss
+         * Col 63:     right wall
+         */
+        level_width_px = 512;
         level_height_px = 240;
         scroll_dir = 0;
         set_mirroring(MIRROR_VERTICAL);
 
-        px = 224;
+        px = 24;
         py = FLOOR_Y - 16;
-        p_facing = OAM_FLIP_H;
+        p_facing = 0;
 
-        /* Bar counter — 5 rows above ground */
-        add_platform(8, 21, 14);
+        entrance_col = 8;
+        door_col = 39;
 
-        /* Elevated platform right — 5 rows above counter */
-        add_platform(24, 16, 6);
+        /* --- Bar interior platforms --- */
+        /* Bar counter — long, runs through main bar area */
+        add_platform(14, 21, 16);
 
-        /* Elevated platform center */
-        add_platform(12, 16, 6);
+        /* Elevated platform above counter left */
+        add_platform(12, 16, 8);
+
+        /* Elevated platform above counter right */
+        add_platform(24, 16, 8);
+
+        /* Shelf for bottles — above elevated platforms */
+        add_platform(16, 11, 10);
 
         /* Back room platform */
-        add_platform(1, 16, 4);
+        add_platform(42, 16, 8);
 
-        /* Shelf for bottles — 5 rows above elevated */
-        add_platform(10, 11, 8);
+        /* Back room high platform */
+        add_platform(50, 11, 6);
 
-        /* E1: Gunner, elevated right */
-        add_enemy(0, ETYPE_GUNNER, 208, 16*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
+        /* --- Enemies --- */
+        /* E1: Rusher near entrance, first to greet player */
+        add_enemy(0, ETYPE_RUSHER, 120, FLOOR_Y - 16, OAM_FLIP_H, WPN_NONE, 0);
 
-        /* E2: Rusher, right center ground */
-        add_enemy(1, ETYPE_RUSHER, 176, FLOOR_Y - 16, OAM_FLIP_H, WPN_NONE, 0);
+        /* E2: Gunner behind counter */
+        add_enemy(1, ETYPE_GUNNER, 160, 21*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
-        /* E3: Thrower, left center */
-        add_enemy(2, ETYPE_THROWER, 120, FLOOR_Y - 16, 0, WPN_PISTOL, 1);
+        /* E3: Shotgunner on elevated left platform */
+        add_enemy(2, ETYPE_SHOTGUNNER, 128, 16*8 - 16, OAM_FLIP_H, WPN_SHOTGUN, 2);
 
-        /* E4: Shotgunner, elevated center */
-        add_enemy(3, ETYPE_SHOTGUNNER, 112, 16*8 - 16, 0, WPN_SHOTGUN, 2);
+        /* E4: Gunner on elevated right platform */
+        add_enemy(3, ETYPE_GUNNER, 224, 16*8 - 16, OAM_FLIP_H, WPN_PISTOL, 3);
 
-        /* E5: Gunner, behind bar */
-        add_enemy(4, ETYPE_GUNNER, 80, 21*8 - 16, 0, WPN_PISTOL, 3);
+        /* E5: Thrower behind counter, deeper in bar */
+        add_enemy(4, ETYPE_THROWER, 200, 21*8 - 16, 0, WPN_PISTOL, 1);
 
-        /* E6: Rusher, behind bar (activates aggressively when E5 dies) */
-        add_enemy(5, ETYPE_RUSHER, 96, 21*8 - 16, 0, WPN_NONE, 0);
-        en_timer[5] = 200; /* won't rush until timer resets */
+        /* E6: Rusher behind counter (activates when E2 dies) */
+        add_enemy(5, ETYPE_RUSHER, 180, 21*8 - 16, 0, WPN_NONE, 0);
+        en_timer[5] = 200;
 
-        /* E7: Katana wielder in back room (visible but passive until door opens) */
-        add_enemy(6, ETYPE_RUSHER, 24, 16*8 - 16, 0, WPN_KATANA, 0);
+        /* E7: Katana wielder in back room (passive until door opens) */
+        add_enemy(6, ETYPE_RUSHER, 368, 16*8 - 16, OAM_FLIP_H, WPN_KATANA, 0);
         en_timer[6] = 200;
 
         /* Bottles as pickups on shelf */
-        pick_type[0] = WPN_BOTTLE; pick_x[0] = 88;  pick_y[0] = 11*8 - 8; pick_ammo[0] = 1;
-        pick_type[1] = WPN_BOTTLE; pick_x[1] = 104; pick_y[1] = 11*8 - 8; pick_ammo[1] = 1;
-        pick_type[2] = WPN_BOTTLE; pick_x[2] = 120; pick_y[2] = 11*8 - 8; pick_ammo[2] = 1;
+        pick_type[0] = WPN_BOTTLE; pick_x[0] = 136; pick_y[0] = 11*8 - 8; pick_ammo[0] = 1;
+        pick_type[1] = WPN_BOTTLE; pick_x[1] = 160; pick_y[1] = 11*8 - 8; pick_ammo[1] = 1;
+        pick_type[2] = WPN_BOTTLE; pick_x[2] = 184; pick_y[2] = 11*8 - 8; pick_ammo[2] = 1;
     }
 }
 
@@ -959,13 +985,69 @@ static void draw_bg_column(unsigned char world_col) {
 
     /* Level-specific decorations */
     if (current_level == 3) {
-        if (world_col == 5) {
+        /* Glass entrance door — full-height glass panel */
+        if (world_col == entrance_col && !entrance_open) {
+            for (ty = 12; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_LGREY);
+            }
+        }
+        /* Interior walls around entrance — frame the door */
+        if (world_col == entrance_col - 1 || world_col == entrance_col + 1) {
+            for (ty = 8; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_WALL);
+            }
+        }
+        /* Bar ceiling — roof over the interior */
+        if (world_col >= entrance_col && world_col <= door_col) {
+            vram_adr(tile_addr(world_col, 8));
+            vram_put(BG_FLOOR_TOP);
+        }
+        /* Back room door */
+        if (world_col == door_col) {
+            for (ty = 9; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(door_open_flag ? BG_EMPTY : BG_WALL);
+            }
+            /* Door tile */
             vram_adr(tile_addr(world_col, 16));
             vram_put(door_open_flag ? BG_DOOR_OPEN : BG_DOOR_SHUT);
         }
-        if (world_col >= 10 && world_col < 18) {
+        /* Back room walls */
+        if (world_col == door_col + 1 || world_col == door_col - 1) {
+            if (world_col == door_col - 1) {
+                for (ty = 8; ty < 26; ++ty) {
+                    vram_adr(tile_addr(world_col, ty));
+                    vram_put(BG_WALL);
+                }
+            }
+        }
+        /* Back room ceiling */
+        if (world_col > door_col && world_col < 63) {
+            vram_adr(tile_addr(world_col, 8));
+            vram_put(BG_FLOOR_TOP);
+        }
+        /* Shelf tiles in bar area */
+        if (world_col >= 16 && world_col < 26) {
             vram_adr(tile_addr(world_col, 11));
             vram_put(BG_SHELF);
+        }
+        /* Bar counter decoration */
+        if (world_col >= 14 && world_col < 30) {
+            vram_adr(tile_addr(world_col, 21));
+            vram_put(BG_BAR_TOP);
+            for (ty = 22; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_BAR_BODY);
+            }
+        }
+        /* Columns for ambiance */
+        if (world_col == 12 || world_col == 22 || world_col == 32) {
+            for (ty = 9; ty < 26; ++ty) {
+                vram_adr(tile_addr(world_col, ty));
+                vram_put(BG_COLUMN);
+            }
         }
     }
 }
@@ -1165,6 +1247,14 @@ static void update_player(void) {
             spawn_ammo = 0;
             spawn_bullet(px + 4, py + 4, throw_vx, 0, 0);
             p_weapon = WPN_NONE;
+        } else if (p_weapon == WPN_BOTTLE) {
+            /* AUTO-THROW bottle — bottles are always thrown on B press */
+            throw_vx = (p_facing == OAM_FLIP_H) ? -THROW_SPEED : THROW_SPEED;
+            spawn_wpn = WPN_BOTTLE;
+            spawn_ammo = p_ammo;
+            spawn_bullet(px + 4, py + 4, throw_vx, 0, 0);
+            p_weapon = WPN_NONE;
+            p_ammo = 0;
         } else if (p_weapon == WPN_PISTOL && p_ammo > 0) {
             /* SHOOT pistol — lower when crouched */
             sfx_play(SFX_GUNSHOT, SFX_CH0);
@@ -1403,8 +1493,8 @@ static void update_enemies(void) {
         en_timer[2] = 0;
         en_facing[2] = OAM_FLIP_H;
     }
-    if (current_level == 3 && en_type[4] == ETYPE_NONE && en_timer[5] >= 200) {
-        /* E6 becomes aggressive when E5 dies */
+    if (current_level == 3 && en_type[1] == ETYPE_NONE && en_timer[5] >= 200) {
+        /* E6 becomes aggressive when E2 (gunner behind counter) dies */
         en_timer[5] = 0;
     }
     if (current_level == 3 && door_open_flag && en_timer[6] >= 200) {
@@ -1446,13 +1536,39 @@ static void update_enemies(void) {
             en_sight[i] = 0;
         }
 
-        /* Enemy crouch reaction: crouch when player crouches nearby */
+        /* Enemy crouch reaction */
+        tmp = 0; /* crouch trigger flag */
+        /* Gunners/shotgunners crouch when player crouches nearby */
         if (p_crouch && dist < 200 && ty < 20 &&
             (en_type[i] == ETYPE_GUNNER || en_type[i] == ETYPE_SHOTGUNNER)) {
-            en_crouch[i] += tick_advance;
-            if (en_crouch[i] > 20) en_crouch[i] = 20; /* cap at fully crouched */
+            tmp = 1;
+        }
+        /* Katana rushers crouch to dodge incoming bullets */
+        if (en_weapon[i] == WPN_KATANA && en_type[i] == ETYPE_RUSHER) {
+            for (ci = 0; ci < MAX_BULLETS; ++ci) {
+                if (!bul_active[ci]) continue;
+                if (bul_owner[ci] != 0) continue; /* only dodge player bullets */
+                /* Bullet headed toward this enemy and at head height? */
+                wx = (bul_x[ci] > en_x[i]) ? bul_x[ci] - en_x[i] : en_x[i] - bul_x[ci];
+                if (wx < 120 &&
+                    bul_y[ci] < en_y[i] + 8 &&
+                    ((bul_vx[ci] > 0 && bul_x[ci] < en_x[i]) ||
+                     (bul_vx[ci] < 0 && bul_x[ci] > en_x[i]))) {
+                    tmp = 1;
+                    break;
+                }
+            }
+        }
+        if (tmp) {
+            /* Katana rushers crouch fast (reflexes) */
+            if (en_weapon[i] == WPN_KATANA) {
+                en_crouch[i] += tick_advance * 5;
+            } else {
+                en_crouch[i] += tick_advance;
+            }
+            if (en_crouch[i] > 20) en_crouch[i] = 20;
         } else {
-            if (en_crouch[i] > 0) en_crouch[i] -= 1; /* stand back up gradually */
+            if (en_crouch[i] > 0) en_crouch[i] -= 1;
         }
 
         switch (en_type[i]) {
@@ -1597,11 +1713,45 @@ static void update_enemies(void) {
         }
     }
 
-    /* Level 3 door logic: opens when E4 (idx 3) and E5 (idx 4) are dead */
-    if (current_level == 3 && !door_open_flag) {
-        if (en_type[3] == ETYPE_NONE && en_type[4] == ETYPE_NONE) {
-            door_open_flag = 1;
+    if (current_level == 3) {
+        tmp = 0; /* vram_buf write index */
+
+        /* Glass entrance door: opens when player approaches */
+        if (!entrance_open && px > (unsigned int)(entrance_col * 8 - 16)) {
+            entrance_open = 1;
+            /* Clear the glass panel tiles (rows 12-25) */
+            for (ci = 12; ci < 26; ++ci) {
+                wx = tile_addr(entrance_col, ci);
+                vram_buf[tmp++] = (unsigned char)(wx >> 8);
+                vram_buf[tmp++] = (unsigned char)(wx & 0xFF);
+                vram_buf[tmp++] = BG_EMPTY;
+            }
         }
+
+        /* Back room door: opens when bar enemies (E1-E5, idx 0-4) are mostly dead */
+        if (!door_open_flag) {
+            ci = 0;
+            for (si = 0; si < 5; ++si) {
+                if (en_type[si] == ETYPE_NONE || en_state[si] == 3) ++ci;
+            }
+            if (ci >= 4) {
+                door_open_flag = 1;
+                /* Clear wall tiles and place open door */
+                for (ci = 9; ci < 26; ++ci) {
+                    wx = tile_addr(door_col, ci);
+                    vram_buf[tmp++] = (unsigned char)(wx >> 8);
+                    vram_buf[tmp++] = (unsigned char)(wx & 0xFF);
+                    vram_buf[tmp++] = BG_EMPTY;
+                }
+                /* Place open door tile */
+                wx = tile_addr(door_col, 16);
+                vram_buf[tmp++] = (unsigned char)(wx >> 8);
+                vram_buf[tmp++] = (unsigned char)(wx & 0xFF);
+                vram_buf[tmp++] = BG_DOOR_OPEN;
+            }
+        }
+
+        vram_buf[tmp] = 0xFF; /* NT_UPD_EOF */
     }
 }
 
@@ -1652,8 +1802,10 @@ static void update_bullets(void) {
             for (j = 0; j < MAX_ENEMIES; ++j) {
                 if (en_type[j] == ETYPE_NONE || en_state[j] == 3) continue;
                 tmp = bul_tall[i] ? 16 : 4;
+                /* Crouched enemies have smaller hitbox (bottom 8px when kneeling, bottom 12px when half-crouched) */
+                ty = (en_crouch[j] >= 15) ? en_y[j] + 8 : (en_crouch[j] >= 5) ? en_y[j] + 4 : en_y[j] + 2;
                 if (bul_x[i] + 4 > en_x[j] && bul_x[i] < en_x[j] + 12 &&
-                    bul_y[i] + tmp > en_y[j] + 2 && bul_y[i] < en_y[j] + 16) {
+                    bul_y[i] + tmp > ty && bul_y[i] < en_y[j] + 16) {
                     bul_active[i] = 0;
                     kill_enemy(j);
                     break;
