@@ -87,6 +87,8 @@ void __fastcall__ music_pause(unsigned char pause);
 #define SPR_SLASH_BL  0x31
 #define SPR_SLASH_BR  0x32
 #define SPR_KATANA_H  0x33  /* katana horizontal (thrust) */
+#define SPR_HALFCR_L  0x34  /* half-crouch transition (L) */
+#define SPR_HALFCR_R  0x35  /* half-crouch transition (R) */
 
 /* --- BG tile indices (pattern table 1) --- */
 #define BG_EMPTY      0x00
@@ -221,6 +223,7 @@ static unsigned char p_punch_timer;    /* frames remaining in punch animation */
 static unsigned char p_drop_timer;    /* frames to ignore platform collision (drop-through) */
 static unsigned char p_alive;
 static unsigned char p_crouch;
+static unsigned char p_crouch_timer;  /* ticks spent crouching (for transition anim) */
 
 /* enemies */
 static unsigned char en_type[MAX_ENEMIES];
@@ -638,6 +641,7 @@ static void init_level(void) {
     p_drop_timer = 0;
     p_facing = 0;
     p_crouch = 0;
+    p_crouch_timer = 0;
     camera_x = 0;
     camera_y = 0;
     scroll_dir = 0;
@@ -1068,7 +1072,15 @@ static void update_player(void) {
 
     /* --- Crouch --- */
     p_crouch = (pad & PAD_DOWN) ? 1 : 0;
-    if (p_crouch) tick_advance = 1;
+    if (p_crouch) {
+        tick_advance = 1;
+        if (p_crouch_timer < 4) ++p_crouch_timer;
+    } else {
+        if (p_crouch_timer > 0) {
+            tick_advance = 1;
+            --p_crouch_timer;
+        }
+    }
 
     /* --- Horizontal movement --- */
     pvx = 0;
@@ -1315,8 +1327,12 @@ static void update_player(void) {
         p_anim = 0; /* stand pose during katana thrust (katana sprite does the work) */
     } else if (p_punch_timer > 0) {
         p_anim = 4; /* punch */
+    } else if (p_crouch_timer > 0 && p_crouch_timer < 3) {
+        p_anim = 7; /* half-crouch transition */
     } else if (p_crouch) {
         p_anim = 3;
+    } else if (p_crouch_timer > 0) {
+        p_anim = 7; /* standing back up transition */
     } else if (!p_on_ground) {
         p_anim = 2; /* jump */
     } else if (pvx != 0) {
@@ -1509,7 +1525,7 @@ static void update_enemies(void) {
                         en_timer[i] = 0;
                         spawn_bullet(
                             (dir < 0) ? en_x[i] - 4 : en_x[i] + 12,
-                            en_y[i] + ((en_crouch[i] >= 15) ? 10 : 4),
+                            en_y[i] + ((en_crouch[i] >= 15) ? 10 : (en_crouch[i] >= 5) ? 7 : 4),
                             dir * BULLET_SPEED,
                             0, 1
                         );
@@ -1538,7 +1554,7 @@ static void update_enemies(void) {
                         sfx_play(SFX_GUNSHOT, SFX_CH0);
                         en_timer[i] = 0;
                         wx = (dir < 0) ? en_x[i] - 4 : en_x[i] + 12;
-                        wy = en_y[i] + ((en_crouch[i] >= 15) ? 8 : 2);
+                        wy = en_y[i] + ((en_crouch[i] >= 15) ? 8 : (en_crouch[i] >= 5) ? 5 : 2);
                         spawn_bullet(wx, wy,     dir * SHOTGUN_SPEED, -1, 1);
                         spawn_bullet(wx, wy + 2, dir * SHOTGUN_SPEED,  0, 1);
                         spawn_bullet(wx, wy + 4, dir * SHOTGUN_SPEED,  1, 1);
@@ -1707,7 +1723,7 @@ static void draw_sprites(void) {
     if (p_alive) {
         sx = (int)(px - camera_x);
         sy = (int)(py - camera_y);
-        if (sx > -16 && sx < 248 && sy > -16 && sy < 232) {
+        if (sx >= 0 && sx < 249 && sy >= 0 && sy < 232) {
             scx = (unsigned char)sx;
             scy = (unsigned char)sy;
             attr = PAL_PLAYER;
@@ -1718,6 +1734,14 @@ static void draw_sprites(void) {
                 } else {
                     spr_id = oam_spr(scx,     scy + 8, SPR_CROUCH_L, attr, spr_id);
                     spr_id = oam_spr(scx + 8, scy + 8, SPR_CROUCH_R, attr, spr_id);
+                }
+            } else if (p_anim == 7) {
+                if (p_facing == OAM_FLIP_H) {
+                    spr_id = oam_spr(scx + 8, scy + 4, SPR_HALFCR_L, attr | OAM_FLIP_H, spr_id);
+                    spr_id = oam_spr(scx,     scy + 4, SPR_HALFCR_R, attr | OAM_FLIP_H, spr_id);
+                } else {
+                    spr_id = oam_spr(scx,     scy + 4, SPR_HALFCR_L, attr, spr_id);
+                    spr_id = oam_spr(scx + 8, scy + 4, SPR_HALFCR_R, attr, spr_id);
                 }
             } else {
                 switch (p_anim) {
@@ -1771,7 +1795,7 @@ static void draw_sprites(void) {
                 }
                 spr_id = oam_spr(
                     (p_facing == OAM_FLIP_H) ? scx - 1 : scx + 8,
-                    p_crouch ? scy + 10 : scy + 4,
+                    p_crouch ? scy + 10 : (p_anim == 7) ? scy + 7 : scy + 4,
                     tmp,
                     (p_facing == OAM_FLIP_H) ? PAL_PLAYER | OAM_FLIP_H : PAL_PLAYER,
                     spr_id
@@ -1786,19 +1810,28 @@ static void draw_sprites(void) {
 
         sx = (int)(en_x[i] - camera_x);
         sy = (int)(en_y[i] - camera_y);
-        if (sx < -16 || sx > 240 || sy < -16 || sy > 232) continue;
+        if (sx < 0 || sx > 240 || sy < 0 || sy > 224) continue;
         scx = (unsigned char)sx;
         scy = (unsigned char)sy;
 
         attr = PAL_ENEMY;
         if (en_crouch[i] >= 15) {
-            /* Crouched enemy — only bottom row (like player crouch) */
+            /* Fully crouched enemy — kneeling */
             if (en_facing[i] == OAM_FLIP_H) {
                 spr_id = oam_spr(scx + 8, scy + 8, SPR_CROUCH_L, attr | OAM_FLIP_H, spr_id);
                 spr_id = oam_spr(scx,     scy + 8, SPR_CROUCH_R, attr | OAM_FLIP_H, spr_id);
             } else {
                 spr_id = oam_spr(scx,     scy + 8, SPR_CROUCH_L, attr, spr_id);
                 spr_id = oam_spr(scx + 8, scy + 8, SPR_CROUCH_R, attr, spr_id);
+            }
+        } else if (en_crouch[i] >= 5) {
+            /* Half-crouch transition */
+            if (en_facing[i] == OAM_FLIP_H) {
+                spr_id = oam_spr(scx + 8, scy + 4, SPR_HALFCR_L, attr | OAM_FLIP_H, spr_id);
+                spr_id = oam_spr(scx,     scy + 4, SPR_HALFCR_R, attr | OAM_FLIP_H, spr_id);
+            } else {
+                spr_id = oam_spr(scx,     scy + 4, SPR_HALFCR_L, attr, spr_id);
+                spr_id = oam_spr(scx + 8, scy + 4, SPR_HALFCR_R, attr, spr_id);
             }
         } else if (en_facing[i] == OAM_FLIP_H) {
             spr_id = oam_spr(scx + 8, scy,     SPR_STAND_TL, attr | OAM_FLIP_H, spr_id);
@@ -1813,7 +1846,7 @@ static void draw_sprites(void) {
         }
 
         /* Enemy weapon — lower when crouched */
-        ty = (en_crouch[i] >= 15) ? scy + 10 : scy + 4;
+        ty = (en_crouch[i] >= 15) ? scy + 10 : (en_crouch[i] >= 5) ? scy + 7 : scy + 4;
         if (en_weapon[i] == WPN_PISTOL || en_weapon[i] == WPN_BOTTLE) {
             spr_id = oam_spr(
                 (en_facing[i] == OAM_FLIP_H) ? scx + 1 : scx + 8,
@@ -1846,7 +1879,7 @@ static void draw_sprites(void) {
         if (!bul_active[i]) continue;
         sx = (int)(bul_x[i] - camera_x);
         sy = (int)(bul_y[i] - camera_y);
-        if (sx < -8 || sx > 248 || sy < -8 || sy > 232) continue;
+        if (sx < 0 || sx > 248 || sy < 0 || sy > 232) continue;
         scx = (unsigned char)sx;
         scy = (unsigned char)sy;
         attr = (bul_owner[i] == 0) ? PAL_PLAYER : 0x03;
@@ -1870,7 +1903,7 @@ static void draw_sprites(void) {
         if (pick_type[i] == WPN_NONE) continue;
         sx = (int)(pick_x[i] - camera_x);
         sy = (int)(pick_y[i] - camera_y);
-        if (sx < -8 || sx > 248 || sy < -8 || sy > 232) continue;
+        if (sx < 0 || sx > 248 || sy < 0 || sy > 232) continue;
         scx = (unsigned char)sx;
         scy = (unsigned char)sy;
         tmp = SPR_PISTOL;
@@ -1888,7 +1921,7 @@ static void draw_sprites(void) {
         if (!part_active[i]) continue;
         sx = (int)(part_x[i] - camera_x);
         sy = (int)(part_y[i] - camera_y);
-        if (sx < -8 || sx > 248 || sy < -8 || sy > 232) continue;
+        if (sx < 0 || sx > 248 || sy < 0 || sy > 232) continue;
         spr_id = oam_spr((unsigned char)sx, (unsigned char)sy,
                           SPR_SHATTER1 + (i & 3),
                           PAL_ENEMY, spr_id);
